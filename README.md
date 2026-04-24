@@ -14,6 +14,8 @@ The project keeps the same scaffold shape:
 ## What it does
 
 - Users can sign up, log in, and obtain a Linux install command tied to their account join token.
+- New accounts must verify their email address before logging in.
+- Users can request password reset links by email when they forget their password.
 - Hosts run a dumb Linux-only agent that reads `/proc/net/dev` counters, like vnStat-style interface accounting, and reports raw totals to the central server.
 - The central server owns traffic allowance, reset cycle, metering mode, manual corrections, and alert policy.
 - Per-host allowance, reset period/date, metering type, alert threshold override, and agent poll interval are configurable centrally.
@@ -112,17 +114,23 @@ Supported metering types:
 - Put the server behind HTTPS before installing agents over the network.
 - Set `PUBLIC_URL` to the external HTTPS origin so dashboard install commands point at the reachable central server.
 - Use a strong `JWT_SECRET`.
+- Set `PUBLIC_URL` to the external URL users can open so verification and password reset links are valid.
 - Rotate the account join token if it leaks. Existing agents keep working because they use per-host agent keys after joining.
 - Run Prisma migrations during deploy before starting the application.
 
 ## API sketch
 
 - `POST /api/auth/signup`
+- `POST /api/auth/verify-email`
+- `POST /api/auth/verification-email/resend`
 - `POST /api/auth/login`
+- `POST /api/auth/forgot-password`
+- `POST /api/auth/reset-password`
 - `GET /api/auth/me`
 - `GET /api/account/join-command`
 - `PATCH /api/account`
 - `POST /api/account/join-token/rotate`
+- `POST /api/account/test-email`
 - `GET /api/hosts`
 - `PATCH /api/hosts/:id`
 - `POST /api/hosts/:id/correct-remaining`

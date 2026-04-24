@@ -5,6 +5,11 @@ export type AuthResponse = {
   user: UserDto;
 };
 
+export type MessageResponse = {
+  ok: boolean;
+  message?: string;
+};
+
 export type JoinCommandResponse = {
   serverUrl: string;
   tokenPreview: string;
@@ -46,8 +51,8 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 }
 
 export const api = {
-  signup(email: string, password: string, name?: string) {
-    return apiFetch<AuthResponse>("/api/auth/signup", {
+  signup(email: string, password: string, name: string) {
+    return apiFetch<MessageResponse>("/api/auth/signup", {
       method: "POST",
       body: JSON.stringify({ email, password, name }),
     });
@@ -61,6 +66,30 @@ export const api = {
   me() {
     return apiFetch<{ user: UserDto }>("/api/auth/me");
   },
+  verifyEmail(token: string) {
+    return apiFetch<AuthResponse>("/api/auth/verify-email", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+  },
+  resendVerificationEmail(email: string) {
+    return apiFetch<MessageResponse>("/api/auth/verification-email/resend", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  },
+  forgotPassword(email: string) {
+    return apiFetch<MessageResponse>("/api/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  },
+  resetPassword(token: string, password: string) {
+    return apiFetch<AuthResponse>("/api/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    });
+  },
   updateAccount(defaultAlertThresholdPercent: number) {
     return apiFetch<{ user: UserDto }>("/api/account", {
       method: "PATCH",
@@ -72,6 +101,9 @@ export const api = {
   },
   rotateJoinToken() {
     return apiFetch<JoinCommandResponse>("/api/account/join-token/rotate", { method: "POST" });
+  },
+  sendTestEmail() {
+    return apiFetch<MessageResponse>("/api/account/test-email", { method: "POST" });
   },
   hosts() {
     return apiFetch<{ hosts: HostDto[] }>("/api/hosts");

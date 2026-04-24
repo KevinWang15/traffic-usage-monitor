@@ -4,15 +4,20 @@ import { SHARED_APP_NAME } from "@shared/config/runtime";
 import { api, getToken, setToken, type JoinCommandResponse } from "./api";
 import { bytesToGiB, formatBytes, formatDate, gibToBytes } from "./lib";
 
-type AuthMode = "login" | "signup";
+type AuthMode = "login" | "signup" | "forgot" | "reset" | "verify";
 
 type Notice = { type: "ok" | "error"; message: string } | null;
 
 function AuthPage({ onAuthed }: { onAuthed: (user: UserDto) => void }) {
-  const [mode, setMode] = useState<AuthMode>("login");
+  const initialPath = window.location.pathname;
+  const initialToken = new URLSearchParams(window.location.search).get("token") || "";
+  const [mode, setMode] = useState<AuthMode>(
+    initialPath === "/reset-password" ? "reset" : initialPath === "/verify-email" ? "verify" : "login",
+  );
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [token, setTokenValue] = useState(initialToken);
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState(false);
 
@@ -21,7 +26,24 @@ function AuthPage({ onAuthed }: { onAuthed: (user: UserDto) => void }) {
     setBusy(true);
     setNotice(null);
     try {
-      const response = mode === "login" ? await api.login(email, password) : await api.signup(email, password, name);
+      if (mode === "signup") {
+        const response = await api.signup(email, password, name);
+        setNotice({ type: "ok", message: response.message || "Account created. Check your email to activate it." });
+        setMode("login");
+        setPassword("");
+        return;
+      }
+      if (mode === "forgot") {
+        const response = await api.forgotPassword(email);
+        setNotice({ type: "ok", message: response.message || "If that email exists, a password reset link has been sent." });
+        return;
+      }
+      const response =
+        mode === "reset"
+          ? await api.resetPassword(token, password)
+          : mode === "verify"
+            ? await api.verifyEmail(token)
+            : await api.login(email, password);
       setToken(response.token);
       onAuthed(response.user);
     } catch (error) {
@@ -30,6 +52,30 @@ function AuthPage({ onAuthed }: { onAuthed: (user: UserDto) => void }) {
       setBusy(false);
     }
   }
+
+  async function resendVerification() {
+    setBusy(true);
+    setNotice(null);
+    try {
+      await api.resendVerificationEmail(email);
+      setNotice({ type: "ok", message: "If the account exists and is not active, a new verification email has been sent." });
+    } catch (error) {
+      setNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to resend verification email" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const title =
+    mode === "signup"
+      ? "Create account"
+      : mode === "forgot"
+        ? "Reset password"
+        : mode === "reset"
+          ? "Choose a new password"
+          : mode === "verify"
+            ? "Verify email"
+            : "Log in";
 
   return (
     <main className="auth-shell">
@@ -40,35 +86,65 @@ function AuthPage({ onAuthed }: { onAuthed: (user: UserDto) => void }) {
           Sign up, copy the generated install command, and let each Linux host report dumb
           /proc/net/dev counters while the central server handles quotas, cycles, corrections, and alerts.
         </p>
+        <h2>{title}</h2>
         <form onSubmit={submit} className="stack">
           {mode === "signup" ? (
             <label>
               Name
-              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Optional" />
+              <input value={name} onChange={(event) => setName(event.target.value)} required />
             </label>
           ) : null}
-          <label>
-            Email
-            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required />
-          </label>
-          <label>
-            Password
-            <input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              type="password"
-              minLength={10}
-              required
-            />
-          </label>
+          {mode === "reset" || mode === "verify" ? (
+            <label>
+              Token
+              <input value={token} onChange={(event) => setTokenValue(event.target.value)} required />
+            </label>
+          ) : null}
+          {mode !== "reset" && mode !== "verify" ? (
+            <label>
+              Email
+              <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required />
+            </label>
+          ) : null}
+          {mode !== "forgot" && mode !== "verify" ? (
+            <label>
+              Password
+              <input
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                type="password"
+                minLength={10}
+                required
+              />
+            </label>
+          ) : null}
           {notice ? <div className={`notice ${notice.type}`}>{notice.message}</div> : null}
           <button disabled={busy} className="primary">
-            {busy ? "Working…" : mode === "login" ? "Log in" : "Create account"}
+            {busy ? "Working…" : title}
           </button>
         </form>
-        <button className="link-button" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
-          {mode === "login" ? "Need an account? Sign up" : "Already have an account? Log in"}
-        </button>
+        <div className="auth-links">
+          {mode === "login" ? (
+            <button className="link-button" onClick={() => setMode("signup")}>
+              Need an account? Sign up
+            </button>
+          ) : null}
+          {mode === "login" ? (
+            <button className="link-button" onClick={() => setMode("forgot")}>
+              Forgot password?
+            </button>
+          ) : null}
+          {mode === "login" ? (
+            <button className="link-button" onClick={resendVerification} disabled={busy || !email}>
+              Resend verification email
+            </button>
+          ) : null}
+          {mode !== "login" ? (
+            <button className="link-button" onClick={() => setMode("login")}>
+              Back to login
+            </button>
+          ) : null}
+        </div>
       </section>
     </main>
   );
@@ -107,6 +183,16 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
     }
   }
 
+  async function sendTestEmail() {
+    setNotice(null);
+    try {
+      const result = await api.sendTestEmail();
+      setNotice({ type: "ok", message: result.message || "Test email sent." });
+    } catch (error) {
+      setNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to send test email" });
+    }
+  }
+
   return (
     <section className="card">
       <div className="section-heading">
@@ -128,6 +214,9 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
         <button onClick={saveThreshold}>Save default</button>
         <button onClick={rotateToken} className="secondary">
           Rotate join token
+        </button>
+        <button onClick={sendTestEmail} className="secondary">
+          Send me a test email
         </button>
       </div>
       {joinCommand ? <p className="muted small">Token preview: {joinCommand.tokenPreview}</p> : null}

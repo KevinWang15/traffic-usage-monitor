@@ -1,8 +1,9 @@
 import { Router } from "express";
 import prisma from "../prisma";
 import { env } from "../config";
-import { asyncHandler, HttpError, sendJson } from "../lib/http";
+import { asyncHandler, requireBodyString, sendJson } from "../lib/http";
 import { percentToBasisPoints } from "../lib/bytes";
+import { sendEmail } from "../lib/email";
 import { randomToken } from "../lib/security";
 import { requireUser } from "../middleware/auth";
 import { userDto } from "./auth";
@@ -16,6 +17,10 @@ function shellQuote(value: string): string {
 function buildJoinCommand(publicUrl: string, joinToken: string): string {
   const baseUrl = publicUrl.replace(/\/$/, "");
   return `curl -fsSL ${shellQuote(`${baseUrl}/api/agent/install.sh`)} | sudo bash -s -- --server ${shellQuote(baseUrl)} --token ${shellQuote(joinToken)}`;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char]!);
 }
 
 router.use(requireUser);
@@ -35,7 +40,7 @@ router.get(
 router.patch(
   "/",
   asyncHandler(async (req, res) => {
-    const updates: { defaultAlertThresholdBasisPts?: number; name?: string | null } = {};
+    const updates: { defaultAlertThresholdBasisPts?: number; name?: string } = {};
     if (req.body.defaultAlertThresholdPercent !== undefined) {
       updates.defaultAlertThresholdBasisPts = percentToBasisPoints(
         req.body.defaultAlertThresholdPercent,
@@ -43,13 +48,8 @@ router.patch(
       );
     }
     if (req.body.name !== undefined) {
-      if (req.body.name === null || req.body.name === "") {
-        updates.name = null;
-      } else if (typeof req.body.name === "string") {
-        updates.name = req.body.name.trim();
-      } else {
-        throw new HttpError(400, "name must be a string or null");
-      }
+      const name = requireBodyString(req.body.name, "name");
+      updates.name = name;
     }
 
     const user = await prisma.user.update({ where: { id: req.user!.id }, data: updates });
@@ -69,6 +69,19 @@ router.post(
       tokenPreview: `${user.joinToken.slice(0, 8)}…${user.joinToken.slice(-6)}`,
       command: buildJoinCommand(env.publicUrl, user.joinToken),
     });
+  }),
+);
+
+router.post(
+  "/test-email",
+  asyncHandler(async (req, res) => {
+    const name = escapeHtml(req.user!.name);
+    await sendEmail({
+      to: req.user!.email,
+      subject: "Traffic Usage Monitor test email",
+      html: `<p>Hello ${name},</p><p>This is a test email from Traffic Usage Monitor.</p><p>If you received this, email delivery is configured correctly.</p>`,
+    });
+    sendJson(res, { ok: true, message: "Test email sent." });
   }),
 );
 

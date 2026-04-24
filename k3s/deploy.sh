@@ -139,6 +139,8 @@ create_app_secret() {
     write_env_key ENGAGE_LAB_USERNAME
     write_env_key ENGAGE_LAB_API_KEY
     write_env_key ENGAGE_LAB_FROM_EMAIL
+    write_env_key EMAIL_VERIFICATION_TOKEN_TTL_MINUTES
+    write_env_key PASSWORD_RESET_TOKEN_TTL_MINUTES
   } >"$tmp_env"
 
   kubectl create secret generic "$SECRET_NAME" \

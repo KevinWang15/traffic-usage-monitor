@@ -20,4 +20,4 @@ The deployment script supports:
 
 `delete` removes the app deployment resources and MySQL StatefulSet, but leaves MySQL PVCs intact so database data is not destroyed by default.
 
-Set `PUBLIC_URL` to the external HTTPS origin users and agents can reach. Dashboard Linux install commands use this URL.
+Set `PUBLIC_URL` to the external HTTPS origin users and agents can reach. Dashboard Linux install commands, email verification links, and password reset links use this URL.

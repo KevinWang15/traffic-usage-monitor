@@ -28,7 +28,12 @@ enum HostStatus {
 model User {
   id                            String                @id @default(cuid())
   email                         String                @unique
-  name                          String?
+  name                          String
+  emailVerifiedAt               DateTime?
+  emailVerificationTokenHash    String?               @unique
+  emailVerificationExpiresAt    DateTime?
+  passwordResetTokenHash        String?               @unique
+  passwordResetExpiresAt        DateTime?
   passwordHash                  String
   joinToken                     String                @unique
   defaultAlertThresholdBasisPts Int                   @default(1000)

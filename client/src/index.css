@@ -193,6 +193,12 @@ button.primary {
   color: #2563eb;
 }
 
+.auth-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .notice {
   margin-top: 12px;
   border-radius: 14px;

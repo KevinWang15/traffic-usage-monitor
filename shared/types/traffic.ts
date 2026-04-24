@@ -32,7 +32,8 @@ export type HostDto = {
 export type UserDto = {
   id: string;
   email: string;
-  name: string | null;
+  name: string;
+  emailVerified: boolean;
   defaultAlertThresholdPercent: number;
   createdAt: string;
 };

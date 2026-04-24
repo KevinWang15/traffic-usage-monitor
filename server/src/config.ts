@@ -16,6 +16,8 @@ export const env = {
   publicUrl: (process.env.PUBLIC_URL || "http://localhost:3000").replace(/\/$/, ""),
   appVersion: process.env.APP_VERSION || "0.1.0",
   jwtSecret: requiredEnv("JWT_SECRET", "replace-with-a-long-random-secret"),
+  emailVerificationTokenTtlMinutes: Number(process.env.EMAIL_VERIFICATION_TOKEN_TTL_MINUTES || 1440),
+  passwordResetTokenTtlMinutes: Number(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES || 60),
 };
 
 if (env.nodeEnv === "production" && env.jwtSecret === "replace-with-a-long-random-secret") {
