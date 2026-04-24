@@ -1,6 +1,21 @@
 import type { Host } from "@prisma/client";
+import axios from "axios";
 import prisma from "../prisma";
 import { normalizeCycleStart } from "../lib/cycles";
+
+async function pingHealthcheck(): Promise<void> {
+  const pingUrl = process.env.HEALTHCHECKS_PING_URL;
+  if (!pingUrl) {
+    return;
+  }
+
+  try {
+    await axios.get(pingUrl, { timeout: 10000 });
+    console.log("Healthcheck ping sent successfully");
+  } catch (error) {
+    console.error("Healthcheck ping failed", error);
+  }
+}
 
 export async function ensureResetForHost(host: Host, now = new Date()): Promise<Host> {
   const cycle = normalizeCycleStart(now, host);
@@ -58,7 +73,7 @@ export async function runResetSweep(now = new Date()): Promise<void> {
     });
 
     if (hosts.length === 0) {
-      return;
+      break;
     }
 
     for (const host of hosts) {
@@ -71,6 +86,8 @@ export async function runResetSweep(now = new Date()): Promise<void> {
 
     cursor = hosts[hosts.length - 1].id;
   }
+
+  await pingHealthcheck();
 }
 
 export function startResetScheduler(): NodeJS.Timeout {
