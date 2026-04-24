@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { Activity, CalendarClock, Edit3, Gauge, RefreshCw, Save, Server, X } from "lucide-react";
 import type { HostDto, UserDto } from "@shared/types/traffic";
 import { SHARED_APP_NAME } from "@shared/config/runtime";
 import { api, getToken, setToken, type JoinCommandResponse } from "./api";
@@ -225,7 +226,32 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
   );
 }
 
-function HostCard({ host, userDefaultThreshold, onChanged }: { host: HostDto; userDefaultThreshold: number; onChanged: (host: HostDto) => void }) {
+const weekDayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function HostUsageBar({ host }: { host: HostDto }) {
+  const usedPercent = host.remainingPercent === null ? null : Math.max(0, Math.min(100, 100 - host.remainingPercent));
+  if (usedPercent === null) {
+    return <span className="muted small">No allowance</span>;
+  }
+  return (
+    <div className="dense-usage">
+      <div className="dense-usage-track"><span style={{ width: `${usedPercent}%` }} /></div>
+      <span>{usedPercent.toFixed(1)}% used</span>
+    </div>
+  );
+}
+
+function HostEditModal({
+  host,
+  userDefaultThreshold,
+  onChanged,
+  onClose,
+}: {
+  host: HostDto;
+  userDefaultThreshold: number;
+  onChanged: (host: HostDto) => void;
+  onClose: () => void;
+}) {
   const [name, setName] = useState(host.name || "");
   const [allowanceGiB, setAllowanceGiB] = useState(bytesToGiB(host.trafficAllowanceBytes));
   const [meteringType, setMeteringType] = useState(host.meteringType);
@@ -242,15 +268,11 @@ function HostCard({ host, userDefaultThreshold, onChanged }: { host: HostDto; us
   const [remainingGiB, setRemainingGiB] = useState(bytesToGiB(host.remainingBytes));
   const [correctionReason, setCorrectionReason] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
-
-  const usedPercent = useMemo(() => {
-    if (host.remainingPercent === null) {
-      return null;
-    }
-    return Math.max(0, Math.min(100, 100 - host.remainingPercent));
-  }, [host.remainingPercent]);
+  const [saving, setSaving] = useState(false);
+  const [correcting, setCorrecting] = useState(false);
 
   async function saveConfig() {
+    setSaving(true);
     setNotice(null);
     try {
       const response = await api.updateHost(host.id, {
@@ -270,10 +292,13 @@ function HostCard({ host, userDefaultThreshold, onChanged }: { host: HostDto; us
       setNotice({ type: "ok", message: "Host configuration saved." });
     } catch (error) {
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to save host" });
+    } finally {
+      setSaving(false);
     }
   }
 
   async function correctRemaining() {
+    setCorrecting(true);
     setNotice(null);
     try {
       const response = await api.correctRemaining(host.id, gibToBytes(remainingGiB), correctionReason);
@@ -281,136 +306,214 @@ function HostCard({ host, userDefaultThreshold, onChanged }: { host: HostDto; us
       setNotice({ type: "ok", message: "Remaining traffic corrected." });
     } catch (error) {
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to correct remaining traffic" });
+    } finally {
+      setCorrecting(false);
     }
   }
 
   return (
-    <article className="host-card">
-      <div className="host-top">
-        <div>
-          <h3>{host.name || host.hostname}</h3>
-          <p className="muted small">
-            {host.hostname} · {host.machineId || "no machine id"}
-          </p>
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`Edit ${host.name || host.hostname}`}>
+      <div className="modal-panel">
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Host settings</p>
+            <h2>{host.name || host.hostname}</h2>
+            <p className="muted small">{host.hostname} · {host.machineId || "no machine id"}</p>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Close editor"><X size={18} /></button>
         </div>
-        <span className={`status ${host.status.toLowerCase()}`}>{host.status}</span>
-      </div>
 
-      <div className="metrics">
-        <div>
-          <span>Remaining</span>
-          <strong>{formatBytes(host.remainingBytes)}</strong>
+        <div className="modal-summary">
+          <div><span>Remaining</span><strong>{formatBytes(host.remainingBytes)}</strong></div>
+          <div><span>Used</span><strong>{formatBytes(host.usedBytes)}</strong></div>
+          <div><span>Allowance</span><strong>{formatBytes(host.trafficAllowanceBytes)}</strong></div>
+          <div><span>Remaining %</span><strong>{host.remainingPercent === null ? "—" : `${host.remainingPercent.toFixed(2)}%`}</strong></div>
         </div>
-        <div>
-          <span>Used this cycle</span>
-          <strong>{formatBytes(host.usedBytes)}</strong>
-        </div>
-        <div>
-          <span>Allowance</span>
-          <strong>{formatBytes(host.trafficAllowanceBytes)}</strong>
-        </div>
-        <div>
-          <span>Remaining %</span>
-          <strong>{host.remainingPercent === null ? "—" : `${host.remainingPercent.toFixed(2)}%`}</strong>
-        </div>
-      </div>
-      {usedPercent !== null ? (
-        <div className="bar"><span style={{ width: `${usedPercent}%` }} /></div>
-      ) : null}
 
-      <div className="grid-form">
-        <label>
-          Display name
-          <input value={name} onChange={(event) => setName(event.target.value)} />
-        </label>
-        <label>
-          Allowance (GiB)
-          <input value={allowanceGiB} onChange={(event) => setAllowanceGiB(event.target.value)} type="number" min="0" step="0.01" />
-        </label>
-        <label>
-          Metering
-          <select value={meteringType} onChange={(event) => setMeteringType(event.target.value as HostDto["meteringType"])}>
-            <option value="EGRESS_ONLY">Egress only</option>
-            <option value="INGRESS_AND_EGRESS">Ingress + egress</option>
-          </select>
-        </label>
-        <label>
-          Reset period
-          <select value={resetPeriod} onChange={(event) => setResetPeriod(event.target.value as HostDto["resetPeriod"])}>
-            <option value="DAILY">Daily</option>
-            <option value="WEEKLY">Weekly</option>
-            <option value="MONTHLY">Monthly</option>
-            <option value="YEARLY">Yearly</option>
-          </select>
-        </label>
-        <label>
-          Reset day of month
-          <input value={resetDayOfMonth} onChange={(event) => setResetDayOfMonth(event.target.value)} type="number" min="1" max="31" />
-        </label>
-        <label>
-          Reset day of week
-          <select value={resetDayOfWeek} onChange={(event) => setResetDayOfWeek(event.target.value)}>
-            <option value="0">Sunday</option>
-            <option value="1">Monday</option>
-            <option value="2">Tuesday</option>
-            <option value="3">Wednesday</option>
-            <option value="4">Thursday</option>
-            <option value="5">Friday</option>
-            <option value="6">Saturday</option>
-          </select>
-        </label>
-        <label>
-          Reset month
-          <input value={resetMonth} onChange={(event) => setResetMonth(event.target.value)} type="number" min="1" max="12" />
-        </label>
-        <label>
-          Reset hour UTC
-          <input value={resetHourUtc} onChange={(event) => setResetHourUtc(event.target.value)} type="number" min="0" max="23" />
-        </label>
-        <label>
-          Reset minute UTC
-          <input value={resetMinuteUtc} onChange={(event) => setResetMinuteUtc(event.target.value)} type="number" min="0" max="59" />
-        </label>
-        <label>
-          Alert threshold override (%)
-          <input
-            value={alertThreshold}
-            onChange={(event) => setAlertThreshold(event.target.value)}
-            placeholder={`Default ${userDefaultThreshold}%`}
-            type="number"
-            min="0"
-            max="100"
-            step="0.01"
-          />
-        </label>
-        <label>
-          Agent poll interval (s)
-          <input value={pollInterval} onChange={(event) => setPollInterval(event.target.value)} type="number" min="10" max="3600" />
-        </label>
-      </div>
-      <div className="row wrap">
-        <button onClick={saveConfig}>Save host config</button>
-        <span className="muted small">Last report: {formatDate(host.lastReportAt)} · Cycle: {host.currentCycleStartedAt ? formatDate(host.currentCycleStartedAt) : "—"}</span>
-      </div>
+        <div className="grid-form modal-grid">
+          <label>
+            Display name
+            <input value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label>
+            Allowance (GiB)
+            <input value={allowanceGiB} onChange={(event) => setAllowanceGiB(event.target.value)} type="number" min="0" step="0.01" />
+          </label>
+          <label>
+            Metering
+            <select value={meteringType} onChange={(event) => setMeteringType(event.target.value as HostDto["meteringType"])}>
+              <option value="EGRESS_ONLY">Egress only</option>
+              <option value="INGRESS_AND_EGRESS">Ingress + egress</option>
+            </select>
+          </label>
+          <label>
+            Reset period
+            <select value={resetPeriod} onChange={(event) => setResetPeriod(event.target.value as HostDto["resetPeriod"])}>
+              <option value="DAILY">Daily</option>
+              <option value="WEEKLY">Weekly</option>
+              <option value="MONTHLY">Monthly</option>
+              <option value="YEARLY">Yearly</option>
+            </select>
+          </label>
+          <label>
+            Reset day of month
+            <input value={resetDayOfMonth} onChange={(event) => setResetDayOfMonth(event.target.value)} type="number" min="1" max="31" />
+          </label>
+          <label>
+            Reset day of week
+            <select value={resetDayOfWeek} onChange={(event) => setResetDayOfWeek(event.target.value)}>
+              {weekDayLabels.map((label, index) => <option key={label} value={index}>{label}</option>)}
+            </select>
+          </label>
+          <label>
+            Reset month
+            <input value={resetMonth} onChange={(event) => setResetMonth(event.target.value)} type="number" min="1" max="12" />
+          </label>
+          <label>
+            Reset hour UTC
+            <input value={resetHourUtc} onChange={(event) => setResetHourUtc(event.target.value)} type="number" min="0" max="23" />
+          </label>
+          <label>
+            Reset minute UTC
+            <input value={resetMinuteUtc} onChange={(event) => setResetMinuteUtc(event.target.value)} type="number" min="0" max="59" />
+          </label>
+          <label>
+            Alert threshold override (%)
+            <input
+              value={alertThreshold}
+              onChange={(event) => setAlertThreshold(event.target.value)}
+              placeholder={`Default ${userDefaultThreshold}%`}
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+            />
+          </label>
+          <label>
+            Agent poll interval (s)
+            <input value={pollInterval} onChange={(event) => setPollInterval(event.target.value)} type="number" min="10" max="3600" />
+          </label>
+        </div>
 
-      <div className="correction-box">
-        <h4>Manual correction</h4>
-        <p className="muted small">Set the remaining traffic directly when provider-side metering differs from collected counters.</p>
-        <div className="row wrap">
+        <div className="modal-actions">
+          <button onClick={saveConfig} disabled={saving}><Save size={16} /> {saving ? "Saving…" : "Save config"}</button>
+          <button onClick={onClose} className="secondary">Close</button>
+        </div>
+
+        <div className="correction-box dense-correction">
+          <div>
+            <h4>Manual correction</h4>
+            <p className="muted small">Set remaining traffic directly when provider-side metering differs.</p>
+          </div>
           <label className="compact-field">
             Remaining (GiB)
             <input value={remainingGiB} onChange={(event) => setRemainingGiB(event.target.value)} type="number" min="0" step="0.01" />
           </label>
-          <label className="compact-field grow">
+          <label className="grow">
             Reason
             <input value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} placeholder="Optional" />
           </label>
-          <button onClick={correctRemaining} className="secondary">Correct remaining</button>
+          <button onClick={correctRemaining} className="secondary" disabled={correcting}>{correcting ? "Correcting…" : "Correct"}</button>
         </div>
-      </div>
 
-      {notice ? <div className={`notice ${notice.type}`}>{notice.message}</div> : null}
-    </article>
+        {notice ? <div className={`notice ${notice.type}`}>{notice.message}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function HostTable({
+  hosts,
+  userDefaultThreshold,
+  onChanged,
+}: {
+  hosts: HostDto[];
+  userDefaultThreshold: number;
+  onChanged: (host: HostDto) => void;
+}) {
+  const [editingHostId, setEditingHostId] = useState<string | null>(null);
+  const editingHost = hosts.find((host) => host.id === editingHostId) || null;
+
+  return (
+    <>
+      <div className="dense-table-wrap">
+        <table className="dense-table">
+          <thead>
+            <tr>
+              <th>Host</th>
+              <th>Status</th>
+              <th>Traffic</th>
+              <th>Remaining</th>
+              <th>Cycle</th>
+              <th>Policy</th>
+              <th>Seen</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {hosts.map((host) => (
+              <tr key={host.id}>
+                <td>
+                  <div className="host-cell">
+                    <Server size={16} />
+                    <div>
+                      <strong>{host.name || host.hostname}</strong>
+                      <span>{host.hostname} · {host.machineId || "no machine id"}</span>
+                    </div>
+                  </div>
+                </td>
+                <td><span className={`status ${host.status.toLowerCase()}`}>{host.status}</span></td>
+                <td>
+                  <div className="metric-stack">
+                    <strong>{formatBytes(host.usedBytes)} used</strong>
+                    <span>{formatBytes(host.trafficAllowanceBytes)} cap</span>
+                    <HostUsageBar host={host} />
+                  </div>
+                </td>
+                <td>
+                  <div className="metric-stack">
+                    <strong>{formatBytes(host.remainingBytes)}</strong>
+                    <span>{host.remainingPercent === null ? "—" : `${host.remainingPercent.toFixed(2)}% left`}</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="metric-stack">
+                    <strong>{host.resetPeriod.toLowerCase()}</strong>
+                    <span>{host.currentCycleStartedAt ? formatDate(host.currentCycleStartedAt) : "No cycle"}</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="policy-chips">
+                    <span><Gauge size={13} /> {host.meteringType === "EGRESS_ONLY" ? "Egress" : "In+out"}</span>
+                    <span><Activity size={13} /> {host.pollIntervalSeconds}s</span>
+                    <span><CalendarClock size={13} /> {host.resetHourUtc}:{String(host.resetMinuteUtc).padStart(2, "0")} UTC</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="metric-stack">
+                    <strong>{formatDate(host.lastReportAt)}</strong>
+                    <span>Joined {formatDate(host.createdAt)}</span>
+                  </div>
+                </td>
+                <td className="actions-cell">
+                  <button className="icon-button" onClick={() => setEditingHostId(host.id)} aria-label={`Edit ${host.name || host.hostname}`}>
+                    <Edit3 size={17} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {editingHost ? (
+        <HostEditModal
+          host={editingHost}
+          userDefaultThreshold={userDefaultThreshold}
+          onChanged={onChanged}
+          onClose={() => setEditingHostId(null)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -459,18 +562,16 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
             <p className="eyebrow">Hosts</p>
             <h2>Monitored nodes</h2>
           </div>
-          <button onClick={loadHosts} className="secondary">Refresh</button>
+          <button onClick={loadHosts} className="secondary"><RefreshCw size={16} /> Refresh</button>
         </div>
         {notice ? <div className={`notice ${notice.type}`}>{notice.message}</div> : null}
         {loading ? <p className="muted">Loading hosts…</p> : null}
         {!loading && hosts.length === 0 ? (
           <p className="muted">No hosts have joined yet. Copy the command above and run it on a Linux server.</p>
         ) : null}
-        <div className="hosts">
-          {hosts.map((host) => (
-            <HostCard key={host.id} host={host} userDefaultThreshold={user.defaultAlertThresholdPercent} onChanged={replaceHost} />
-          ))}
-        </div>
+        {!loading && hosts.length > 0 ? (
+          <HostTable hosts={hosts} userDefaultThreshold={user.defaultAlertThresholdPercent} onChanged={replaceHost} />
+        ) : null}
       </section>
     </main>
   );
