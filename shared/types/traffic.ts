@@ -23,9 +23,24 @@ export type HostDto = {
   currentCycleStartedAt: string | null;
   lastSeenAt: string | null;
   lastReportAt: string | null;
+  recentRateMbps: number;
+  trafficSpark: number[];
   alertThresholdPercent: number;
   alertThresholdOverridePercent: number | null;
   pollIntervalSeconds: number;
+  createdAt: string;
+};
+
+export type TrafficSampleDto = {
+  id: string;
+  hostId: string;
+  interface: string;
+  rxBytes: string;
+  txBytes: string;
+  deltaRxBytes: string;
+  deltaTxBytes: string;
+  meteredBytes: string;
+  observedAt: string;
   createdAt: string;
 };
 

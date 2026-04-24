@@ -33,7 +33,8 @@ spec:
           image: ghcr.io/your-org/traffic-usage-monitor:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 3000
+            - name: http
+              containerPort: 3000
           envFrom:
             - secretRef:
                 name: traffic-usage-monitor-secret

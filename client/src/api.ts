@@ -1,4 +1,4 @@
-import type { HostDto, UserDto } from "@shared/types/traffic";
+import type { HostDto, TrafficSampleDto, UserDto } from "@shared/types/traffic";
 
 export type AuthResponse = {
   token: string;
@@ -107,6 +107,9 @@ export const api = {
   },
   hosts() {
     return apiFetch<{ hosts: HostDto[] }>("/api/hosts");
+  },
+  hostSamples(id: string) {
+    return apiFetch<{ samples: TrafficSampleDto[] }>(`/api/hosts/${id}/samples`);
   },
   updateHost(id: string, payload: Record<string, unknown>) {
     return apiFetch<{ host: HostDto }>(`/api/hosts/${id}`, {

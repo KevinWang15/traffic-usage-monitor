@@ -213,6 +213,10 @@ metadata:
   namespace: ${NAMESPACE}
   labels:
     app.kubernetes.io/name: ${APP_NAME}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: "/api/metrics"
+    prometheus.io/port: "${CONTAINER_PORT}"
 spec:
   type: NodePort
   selector:
@@ -378,7 +382,8 @@ ${init_container_block}
           image: ${IMAGE}
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: ${CONTAINER_PORT}
+            - name: http
+              containerPort: ${CONTAINER_PORT}
           envFrom:
             - secretRef:
                 name: ${SECRET_NAME}

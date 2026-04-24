@@ -21,3 +21,5 @@ The deployment script supports:
 `delete` removes the app deployment resources and MySQL StatefulSet, but leaves MySQL PVCs intact so database data is not destroyed by default.
 
 Set `PUBLIC_URL` to the external HTTPS origin users and agents can reach. Dashboard Linux install commands, email verification links, and password reset links use this URL.
+
+The app exposes Prometheus-format metrics at `/api/metrics`. The generated Service includes standard `prometheus.io/*` scrape annotations for clusters that honor them.

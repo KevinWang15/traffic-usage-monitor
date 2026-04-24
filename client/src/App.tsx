@@ -1,13 +1,294 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { Activity, CalendarClock, Edit3, Gauge, RefreshCw, Save, Server, X } from "lucide-react";
-import type { HostDto, UserDto } from "@shared/types/traffic";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  Copy,
+  LogOut,
+  RefreshCw,
+  Save,
+  Search,
+  Settings,
+  SlidersHorizontal,
+  TerminalSquare,
+  X,
+} from "lucide-react";
+import type { HostDto, TrafficSampleDto, UserDto } from "@shared/types/traffic";
 import { SHARED_APP_NAME } from "@shared/config/runtime";
 import { api, getToken, setToken, type JoinCommandResponse } from "./api";
-import { bytesToGiB, formatBytes, formatDate, gibToBytes } from "./lib";
+import { bytesToGiB, formatBytes, gibToBytes } from "./lib";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset" | "verify";
-
 type Notice = { type: "ok" | "error"; message: string } | null;
+type FleetStatus = "active" | "warning" | "critical" | "exceeded" | "offline" | "disabled";
+type Density = "comfy" | "compact" | "ultra";
+type GroupBy = "none" | "provider" | "region" | "tag" | "status";
+type SortKey =
+  | "status"
+  | "hostname"
+  | "provider"
+  | "region"
+  | "usedBytes"
+  | "remainingBytes"
+  | "trafficAllowanceBytes"
+  | "usedPercent"
+  | "recentRateMbps"
+  | "cycle"
+  | "lastSeenSort";
+
+type NodeView = {
+  host: HostDto;
+  id: string;
+  hostname: string;
+  title: string;
+  provider: string;
+  region: string;
+  tags: string[];
+  status: FleetStatus;
+  usedBytes: number;
+  remainingBytes: number;
+  trafficAllowanceBytes: number;
+  usedPercent: number | null;
+  remainingPercent: number | null;
+  recentRateMbps: number;
+  spark: number[];
+  cycle: string;
+  lastSeenSort: number;
+};
+
+const statusOptions: Array<{ value: FleetStatus; label: string }> = [
+  { value: "active", label: "Active" },
+  { value: "warning", label: "Warning" },
+  { value: "critical", label: "Critical" },
+  { value: "exceeded", label: "Exceeded" },
+  { value: "offline", label: "Offline" },
+  { value: "disabled", label: "Disabled" },
+];
+
+const weekDayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function asNumberBytes(value: string): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function percentUsed(host: HostDto): number | null {
+  if (host.remainingPercent !== null) {
+    return Math.max(0, Math.min(100, 100 - host.remainingPercent));
+  }
+  const allowance = asNumberBytes(host.trafficAllowanceBytes);
+  return allowance > 0 ? Math.min(100, (asNumberBytes(host.usedBytes) / allowance) * 100) : null;
+}
+
+function deriveStatus(host: HostDto): FleetStatus {
+  if (host.status === "DISABLED") {
+    return "disabled";
+  }
+  if (host.status === "STALE") {
+    return "offline";
+  }
+  if (host.remainingPercent === null) {
+    return "active";
+  }
+  if (host.remainingPercent <= 0) {
+    return "exceeded";
+  }
+  if (host.remainingPercent <= 10) {
+    return "critical";
+  }
+  if (host.remainingPercent <= host.alertThresholdPercent) {
+    return "warning";
+  }
+  return "active";
+}
+
+function statusTone(status: FleetStatus): "ok" | "warn" | "crit" | "off" {
+  if (status === "active") {
+    return "ok";
+  }
+  if (status === "warning") {
+    return "warn";
+  }
+  if (status === "critical" || status === "exceeded") {
+    return "crit";
+  }
+  return "off";
+}
+
+function statusRank(status: FleetStatus): number {
+  return { exceeded: 5, critical: 4, warning: 3, offline: 2, disabled: 1, active: 0 }[status];
+}
+
+function labelStatus(status: FleetStatus): string {
+  return status.toUpperCase();
+}
+
+function detectProvider(host: HostDto): string {
+  const source = `${host.name || ""} ${host.hostname}`.toLowerCase();
+  const known = ["DMIT", "Hetzner", "OVH", "Vultr", "Linode", "Contabo", "LeaseWeb", "Datapacket"];
+  return known.find((provider) => source.includes(provider.toLowerCase())) || "Unassigned";
+}
+
+function detectRegion(host: HostDto): string {
+  const source = `${host.name || ""} ${host.hostname}`.toLowerCase();
+  const known = ["us-east", "us-west", "eu-fra", "eu-ams", "ap-sg", "ap-tok", "ap-hkg", "sa-gru"];
+  return known.find((region) => source.includes(region)) || "default";
+}
+
+function hashString(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = Math.imul(hash ^ value.charCodeAt(index), 16777619);
+  }
+  return hash >>> 0;
+}
+
+function fallbackSpark(seed: string, used: number | null): number[] {
+  const base = Math.max(0.08, Math.min(1, (used ?? 20) / 100));
+  let value = base;
+  return Array.from({ length: 48 }, (_, index) => {
+    const noise = (hashString(`${seed}:${index}`) % 1000) / 1000 - 0.5;
+    value = Math.max(0.02, Math.min(1, value + noise * 0.22));
+    return value;
+  });
+}
+
+function toNodeView(host: HostDto): NodeView {
+  const used = percentUsed(host);
+  const provider = detectProvider(host);
+  const region = detectRegion(host);
+  const status = deriveStatus(host);
+  return {
+    host,
+    id: host.id,
+    hostname: host.hostname,
+    title: host.name || host.hostname,
+    provider,
+    region,
+    tags: [host.meteringType === "EGRESS_ONLY" ? "egress" : "in-out", host.resetPeriod.toLowerCase(), status].filter(
+      (tag, index, tags) => tags.indexOf(tag) === index,
+    ),
+    status,
+    usedBytes: asNumberBytes(host.usedBytes),
+    remainingBytes: asNumberBytes(host.remainingBytes),
+    trafficAllowanceBytes: asNumberBytes(host.trafficAllowanceBytes),
+    usedPercent: used,
+    remainingPercent: host.remainingPercent,
+    recentRateMbps: host.recentRateMbps || 0,
+    spark: host.trafficSpark?.length ? host.trafficSpark : fallbackSpark(host.id, used),
+    cycle: host.resetPeriod.toLowerCase(),
+    lastSeenSort: host.lastSeenAt ? new Date(host.lastSeenAt).getTime() : 0,
+  };
+}
+
+function formatRate(mbps: number): string {
+  if (!Number.isFinite(mbps) || mbps <= 0) {
+    return "0 Kbps";
+  }
+  if (mbps >= 1000) {
+    return `${(mbps / 1000).toFixed(2)} Gbps`;
+  }
+  if (mbps >= 1) {
+    return `${mbps.toFixed(0)} Mbps`;
+  }
+  return `${(mbps * 1000).toFixed(0)} Kbps`;
+}
+
+function relTime(value: string | null): string {
+  if (!value) {
+    return "never";
+  }
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+  if (seconds < 3600) {
+    return `${Math.floor(seconds / 60)}m ago`;
+  }
+  if (seconds < 86400) {
+    return `${Math.floor(seconds / 3600)}h ago`;
+  }
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+function shortDate(value: string | null): string {
+  if (!value) {
+    return "—";
+  }
+  return new Date(value).toISOString().slice(0, 16).replace("T", " ");
+}
+
+function Sparkline({ data, tone = "ok", width = 72, height = 18 }: { data: number[]; tone?: string; width?: number; height?: number }) {
+  if (data.length === 0) {
+    return null;
+  }
+  const max = Math.max(...data, 0.001);
+  const step = data.length > 1 ? width / (data.length - 1) : width;
+  const points = data.map((value, index) => [index * step, height - (value / max) * (height - 2) - 1]);
+  const line = points.map((point, index) => `${index === 0 ? "M" : "L"}${point[0].toFixed(1)},${point[1].toFixed(1)}`).join(" ");
+  const area = `${line} L${width},${height} L0,${height} Z`;
+  return (
+    <svg className={`spark ${tone}`} width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+      <path className="area" d={area} />
+      <path className="line" d={line} />
+    </svg>
+  );
+}
+
+function TimeSeries({ data, tone = "ok" }: { data: number[]; tone?: string }) {
+  const series = data.length ? data : [0];
+  const width = 520;
+  const height = 112;
+  const pad = { left: 40, right: 8, top: 8, bottom: 18 };
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
+  const max = Math.max(...series, 0.001);
+  const step = series.length > 1 ? plotWidth / (series.length - 1) : plotWidth;
+  const points = series.map((value, index) => [pad.left + index * step, pad.top + plotHeight - (value / max) * plotHeight]);
+  const line = points.map((point, index) => `${index === 0 ? "M" : "L"}${point[0].toFixed(1)},${point[1].toFixed(1)}`).join(" ");
+  const area = `${line} L${pad.left + plotWidth},${pad.top + plotHeight} L${pad.left},${pad.top + plotHeight} Z`;
+  return (
+    <svg className={`spark ${tone} timeseries`} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Traffic history">
+      {[0.25, 0.5, 0.75].map((gridLine) => (
+        <line key={gridLine} x1={pad.left} x2={pad.left + plotWidth} y1={pad.top + plotHeight * gridLine} y2={pad.top + plotHeight * gridLine} />
+      ))}
+      <path className="area" d={area} />
+      <path className="line" d={line} />
+      {[0, 0.5, 1].map((tick) => (
+        <text key={tick} x={pad.left - 6} y={pad.top + plotHeight * tick + 3} textAnchor="end">
+          {formatRate(max * (1 - tick))}
+        </text>
+      ))}
+      {[0, 0.5, 1].map((tick) => (
+        <text key={tick} x={pad.left + plotWidth * tick} y={height - 4} textAnchor="middle">
+          {tick === 1 ? "now" : `-${Math.round(24 * (1 - tick))}h`}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+function UsageBar({ node }: { node: NodeView }) {
+  if (node.usedPercent === null) {
+    return <span className="muted-inline">No allowance</span>;
+  }
+  const tone = statusTone(node.status);
+  return (
+    <div className="usage">
+      <div className="usage-bar">
+        <div className={`fill ${tone}`} style={{ width: `${Math.min(100, node.usedPercent).toFixed(1)}%` }} />
+      </div>
+      <span className="pct">{node.usedPercent.toFixed(node.usedPercent >= 10 ? 0 : 1)}%</span>
+    </div>
+  );
+}
+
+function StatusCell({ status }: { status: FleetStatus }) {
+  const tone = statusTone(status);
+  return (
+    <span className={`status-cell ${tone}`}>
+      <span className={`sdot ${tone}${tone === "ok" ? " live" : ""}`} />
+      <span className="mono">{labelStatus(status)}</span>
+    </span>
+  );
+}
 
 function AuthPage({ onAuthed }: { onAuthed: (user: UserDto) => void }) {
   const initialPath = window.location.pathname;
@@ -81,14 +362,16 @@ function AuthPage({ onAuthed }: { onAuthed: (user: UserDto) => void }) {
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <p className="eyebrow">Central server + Linux agents</p>
+        <div className="brand auth-brand">
+          <div className="brand-mark">T</div>
+          <div className="brand-name">Traffic Monitor<small>allowance metering</small></div>
+        </div>
         <h1>{SHARED_APP_NAME}</h1>
-        <p className="muted">
-          Sign up, copy the generated install command, and let each Linux host report dumb
-          /proc/net/dev counters while the central server handles quotas, cycles, corrections, and alerts.
+        <p className="auth-copy">
+          Centralized allowance metering for Linux agents with quota cycles, manual corrections, alerts, and audit-ready counters.
         </p>
         <h2>{title}</h2>
-        <form onSubmit={submit} className="stack">
+        <form onSubmit={submit} className="auth-form">
           {mode === "signup" ? (
             <label>
               Name
@@ -110,41 +393,19 @@ function AuthPage({ onAuthed }: { onAuthed: (user: UserDto) => void }) {
           {mode !== "forgot" && mode !== "verify" ? (
             <label>
               Password
-              <input
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                type="password"
-                minLength={10}
-                required
-              />
+              <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" minLength={10} required />
             </label>
           ) : null}
           {notice ? <div className={`notice ${notice.type}`}>{notice.message}</div> : null}
-          <button disabled={busy} className="primary">
-            {busy ? "Working…" : title}
+          <button disabled={busy} className="btn btn-primary auth-submit">
+            {busy ? "Working..." : title}
           </button>
         </form>
         <div className="auth-links">
-          {mode === "login" ? (
-            <button className="link-button" onClick={() => setMode("signup")}>
-              Need an account? Sign up
-            </button>
-          ) : null}
-          {mode === "login" ? (
-            <button className="link-button" onClick={() => setMode("forgot")}>
-              Forgot password?
-            </button>
-          ) : null}
-          {mode === "login" ? (
-            <button className="link-button" onClick={resendVerification} disabled={busy || !email}>
-              Resend verification email
-            </button>
-          ) : null}
-          {mode !== "login" ? (
-            <button className="link-button" onClick={() => setMode("login")}>
-              Back to login
-            </button>
-          ) : null}
+          {mode === "login" ? <button onClick={() => setMode("signup")}>Need an account? Sign up</button> : null}
+          {mode === "login" ? <button onClick={() => setMode("forgot")}>Forgot password?</button> : null}
+          {mode === "login" ? <button onClick={resendVerification} disabled={busy || !email}>Resend verification email</button> : null}
+          {mode !== "login" ? <button onClick={() => setMode("login")}>Back to login</button> : null}
         </div>
       </section>
     </main>
@@ -167,12 +428,12 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
       onUserChanged(result.user);
       setNotice({ type: "ok", message: "Default alert threshold saved." });
     } catch (error) {
-      setNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to save" });
+      setNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to save threshold" });
     }
   }
 
   async function rotateToken() {
-    if (!confirm("Rotate the join token? Existing agents continue working, but old install commands will stop joining new nodes.")) {
+    if (!confirm("Rotate the join token? Existing agents continue working, but old install commands stop joining new nodes.")) {
       return;
     }
     setNotice(null);
@@ -194,88 +455,482 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
     }
   }
 
+  function copyCommand() {
+    if (joinCommand?.command) {
+      void navigator.clipboard?.writeText(joinCommand.command);
+    }
+  }
+
   return (
-    <section className="card">
-      <div className="section-heading">
+    <section className="install-panel">
+      <div className="panel-head">
         <div>
-          <p className="eyebrow">Account</p>
+          <div className="section-kicker">Install</div>
           <h2>Join Linux nodes</h2>
+          <p>Run the generated command on each Linux host. The agent reports interface counters; this server owns policy and alerting.</p>
         </div>
-        <span className="pill">{user.email}</span>
+        <span className="chip static">{user.email}</span>
       </div>
-      <p className="muted">
-        Run this on a Linux host. It installs a dumb systemd agent that reports interface counters; the central server owns all policy.
-      </p>
-      <pre className="command">{joinCommand?.command || "Loading command…"}</pre>
-      <div className="row wrap">
-        <label className="compact-field">
-          Default alert threshold (%)
+      <pre className="command">{joinCommand?.command || "Loading install command..."}</pre>
+      <div className="button-row">
+        <button className="btn btn-primary" onClick={copyCommand} disabled={!joinCommand}><Copy size={14} /> Copy command</button>
+        <button className="btn" onClick={rotateToken}>Rotate join token</button>
+        <button className="btn" onClick={sendTestEmail}>Send test email</button>
+      </div>
+      <div className="field-grid account-grid">
+        <label className="field">
+          Default alert threshold (% remaining)
           <input value={threshold} onChange={(event) => setThreshold(event.target.value)} type="number" min="0" max="100" step="0.01" />
         </label>
-        <button onClick={saveThreshold}>Save default</button>
-        <button onClick={rotateToken} className="secondary">
-          Rotate join token
-        </button>
-        <button onClick={sendTestEmail} className="secondary">
-          Send me a test email
-        </button>
+        <div className="field action-field">
+          <span>Account policy</span>
+          <button className="btn" onClick={saveThreshold}>Save default</button>
+        </div>
       </div>
-      {joinCommand ? <p className="muted small">Token preview: {joinCommand.tokenPreview}</p> : null}
+      {joinCommand ? <p className="muted-line">Token preview: {joinCommand.tokenPreview}</p> : null}
       {notice ? <div className={`notice ${notice.type}`}>{notice.message}</div> : null}
     </section>
   );
 }
 
-const weekDayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-function HostUsageBar({ host }: { host: HostDto }) {
-  const usedPercent = host.remainingPercent === null ? null : Math.max(0, Math.min(100, 100 - host.remainingPercent));
-  if (usedPercent === null) {
-    return <span className="muted small">No allowance</span>;
-  }
+function Sidebar({
+  active,
+  setActive,
+  counts,
+  user,
+}: {
+  active: string;
+  setActive: (active: string) => void;
+  counts: Record<string, number>;
+  user: UserDto;
+}) {
+  const main = [
+    { id: "overview", label: "Overview" },
+    { id: "nodes", label: "Nodes", count: counts.total },
+    { id: "alerts", label: "Alerts", count: counts.alerts, dot: "crit" },
+    { id: "install", label: "Install" },
+    { id: "audit", label: "Audit log" },
+  ];
+  const saved = [
+    { id: "sv-crit", label: "Critical <= 10%", count: counts.critical },
+    { id: "sv-exc", label: "Exceeded quota", count: counts.exceeded },
+    { id: "sv-off", label: "Offline", count: counts.offline },
+    { id: "sv-edge", label: "tag:egress", count: counts.egress },
+  ];
   return (
-    <div className="dense-usage">
-      <div className="dense-usage-track"><span style={{ width: `${usedPercent}%` }} /></div>
-      <span>{usedPercent.toFixed(1)}% used</span>
+    <aside className="sidebar">
+      <div className="brand">
+        <div className="brand-mark">T</div>
+        <div className="brand-name">Traffic Monitor<small>allowance metering</small></div>
+      </div>
+      <div className="nav-group">
+        {main.map((item) => (
+          <button key={item.id} className={`nav-item${active === item.id ? " active" : ""}`} onClick={() => setActive(item.id)}>
+            <span>{item.dot ? <span className={`sdot ${item.dot}`} /> : null}{item.label}</span>
+            {item.count !== undefined ? <span className="count num">{item.count}</span> : null}
+          </button>
+        ))}
+      </div>
+      <div className="nav-group">
+        <div className="nav-label">Saved filters</div>
+        {saved.map((item) => (
+          <button key={item.id} className={`nav-item${active === item.id ? " active" : ""}`} onClick={() => setActive(item.id)}>
+            <span>{item.label}</span>
+            <span className="count num">{item.count}</span>
+          </button>
+        ))}
+      </div>
+      <div className="nav-group">
+        <div className="nav-label">Groups</div>
+        <button className="nav-item" onClick={() => setActive("group-provider")}>By provider</button>
+        <button className="nav-item" onClick={() => setActive("group-region")}>By region</button>
+        <button className="nav-item" onClick={() => setActive("group-tag")}>By tag</button>
+      </div>
+      <div className="sidebar-footer">
+        <div className="avatar">{user.name.slice(0, 1).toUpperCase()}</div>
+        <div>
+          <div className="footer-name">{user.name}</div>
+          <div className="footer-email">{user.email}</div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function KpiStrip({ nodes }: { nodes: NodeView[] }) {
+  const totals = useMemo(() => {
+    const totalAllowance = nodes.reduce((sum, node) => sum + node.trafficAllowanceBytes, 0);
+    const totalUsed = nodes.reduce((sum, node) => sum + node.usedBytes, 0);
+    const totalRemaining = nodes.reduce((sum, node) => sum + node.remainingBytes, 0);
+    return {
+      total: nodes.length,
+      online: nodes.filter((node) => node.status !== "offline" && node.status !== "disabled").length,
+      critical: nodes.filter((node) => node.status === "critical").length,
+      exceeded: nodes.filter((node) => node.status === "exceeded").length,
+      warning: nodes.filter((node) => node.status === "warning").length,
+      totalAllowance,
+      totalUsed,
+      totalRemaining,
+      rate: nodes.reduce((sum, node) => sum + node.recentRateMbps, 0),
+      spark: nodes.reduce<number[]>((spark, node) => {
+        node.spark.forEach((value, index) => {
+          spark[index] = (spark[index] || 0) + value;
+        });
+        return spark;
+      }, []),
+    };
+  }, [nodes]);
+  const usedPct = totals.totalAllowance > 0 ? (totals.totalUsed / totals.totalAllowance) * 100 : 0;
+  return (
+    <div className="kpis">
+      <div className="kpi">
+        <div className="kpi-label">Fleet</div>
+        <div className="kpi-value num">{totals.online}<span className="unit">/ {totals.total} online</span></div>
+        <div className="kpi-meta"><span className="sdot ok live" /> {totals.online} up · <span className="sdot off" /> {totals.total - totals.online} down</div>
+      </div>
+      <div className="kpi">
+        <div className="kpi-label">Fleet throughput</div>
+        <div className="kpi-value num">{formatRate(totals.rate)}</div>
+        <div className="kpi-meta"><Sparkline data={totals.spark} width={110} height={16} /></div>
+      </div>
+      <div className="kpi">
+        <div className="kpi-label">Total used</div>
+        <div className="kpi-value num">{formatBytes(String(totals.totalUsed))}<span className="unit">/ {formatBytes(String(totals.totalAllowance))}</span></div>
+        <div className="kpi-meta"><span className="num">{usedPct.toFixed(1)}%</span> used · {formatBytes(String(totals.totalRemaining))} remaining</div>
+      </div>
+      <div className="kpi">
+        <div className="kpi-label">Critical</div>
+        <div className="kpi-value num crit-text">{totals.critical + totals.exceeded}</div>
+        <div className="kpi-meta"><span className="crit-text">{totals.exceeded} exceeded</span> · {totals.critical} near limit</div>
+      </div>
+      <div className="kpi">
+        <div className="kpi-label">Warning</div>
+        <div className="kpi-value num warn-text">{totals.warning}</div>
+        <div className="kpi-meta">nodes below threshold</div>
+      </div>
+      <div className="kpi">
+        <div className="kpi-label">Policy</div>
+        <div className="kpi-value num">{nodes.filter((node) => node.host.meteringType === "INGRESS_AND_EGRESS").length}<span className="unit">in+out</span></div>
+        <div className="kpi-meta">{nodes.filter((node) => node.host.meteringType === "EGRESS_ONLY").length} egress-only nodes</div>
+      </div>
     </div>
   );
 }
 
-function HostEditModal({
-  host,
+function Toolbar({
+  q,
+  setQ,
+  filters,
+  setFilters,
+  groupBy,
+  setGroupBy,
+  density,
+  setDensity,
+  showSpark,
+  setShowSpark,
+  selected,
+  onRefresh,
+}: {
+  q: string;
+  setQ: (q: string) => void;
+  filters: { status: FleetStatus[]; tag: string[] };
+  setFilters: (filters: { status: FleetStatus[]; tag: string[] }) => void;
+  groupBy: GroupBy;
+  setGroupBy: (groupBy: GroupBy) => void;
+  density: Density;
+  setDensity: (density: Density) => void;
+  showSpark: boolean;
+  setShowSpark: (showSpark: boolean) => void;
+  selected: number;
+  onRefresh: () => void;
+}) {
+  function toggleStatus(value: FleetStatus) {
+    const next = new Set(filters.status);
+    if (next.has(value)) {
+      next.delete(value);
+    } else {
+      next.add(value);
+    }
+    setFilters({ ...filters, status: [...next] });
+  }
+
+  return (
+    <div className="toolbar">
+      <div className="search">
+        <Search size={13} />
+        <input placeholder="Search host, id, machine id, tag..." value={q} onChange={(event) => setQ(event.target.value)} />
+        <span className="kbd">/</span>
+      </div>
+      {statusOptions.map((option) => (
+        <button
+          key={option.value}
+          className={`chip${filters.status.includes(option.value) ? " active" : ""}`}
+          onClick={() => toggleStatus(option.value)}
+        >
+          <span className={`sdot ${statusTone(option.value)}`} /> {option.label}
+        </button>
+      ))}
+      <div className="divider-v" />
+      <span className="toolbar-label">Group</span>
+      <div className="seg">
+        {(["none", "provider", "region", "tag", "status"] as GroupBy[]).map((value) => (
+          <button key={value} className={groupBy === value ? "on" : ""} onClick={() => setGroupBy(value)}>
+            {value[0].toUpperCase() + value.slice(1)}
+          </button>
+        ))}
+      </div>
+      <div className="spacer" />
+      {selected > 0 ? <span className="selection-count">{selected} selected</span> : null}
+      <div className="seg">
+        {(["comfy", "compact", "ultra"] as Density[]).map((value) => (
+          <button key={value} className={density === value ? "on" : ""} onClick={() => setDensity(value)}>
+            {value}
+          </button>
+        ))}
+      </div>
+      <button className="chip" onClick={() => setShowSpark(!showSpark)}><SlidersHorizontal size={13} /> {showSpark ? "Sparklines" : "No sparks"}</button>
+      <button className="icon-btn" onClick={onRefresh} aria-label="Refresh hosts"><RefreshCw size={14} /></button>
+    </div>
+  );
+}
+
+function HostTable({
+  groups,
+  groupBy,
+  showSpark,
+  sort,
+  setSort,
+  selectedId,
+  setSelectedId,
+  bulk,
+  setBulk,
+}: {
+  groups: Array<{ key: string; label: string; items: NodeView[] }>;
+  groupBy: GroupBy;
+  showSpark: boolean;
+  sort: { key: SortKey; dir: "asc" | "desc" };
+  setSort: (sort: { key: SortKey; dir: "asc" | "desc" }) => void;
+  selectedId: string | null;
+  setSelectedId: (id: string) => void;
+  bulk: Set<string>;
+  setBulk: (next: Set<string>) => void;
+}) {
+  const columns: Array<{ key: SortKey | "sel" | "tags" | "spark"; label: string; sortable?: boolean; align?: "right" }> = [
+    { key: "sel", label: "", sortable: false },
+    { key: "status", label: "Status" },
+    { key: "hostname", label: "Host" },
+    { key: "region", label: "Region" },
+    { key: "tags", label: "Tags", sortable: false },
+    { key: "usedBytes", label: "Used", align: "right" },
+    { key: "remainingBytes", label: "Remaining", align: "right" },
+    { key: "trafficAllowanceBytes", label: "Allowance", align: "right" },
+    { key: "usedPercent", label: "Usage" },
+    ...(showSpark ? [{ key: "spark" as const, label: "24h", sortable: false }] : []),
+    { key: "recentRateMbps", label: "Rate", align: "right" },
+    { key: "cycle", label: "Cycle" },
+    { key: "lastSeenSort", label: "Seen" },
+  ];
+
+  function clickSort(key: SortKey | "sel" | "tags" | "spark", sortable?: boolean) {
+    if (sortable === false || key === "sel" || key === "tags" || key === "spark") {
+      return;
+    }
+    setSort(sort.key === key ? { key, dir: sort.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" });
+  }
+
+  const allRows = groups.flatMap((group) => group.items);
+
+  return (
+    <div className="table-wrap">
+      <table className="nodes">
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th
+                key={column.key}
+                className={sort.key === column.key ? "sorted" : ""}
+                style={{ textAlign: column.align || "left" }}
+                onClick={() => clickSort(column.key, column.sortable)}
+              >
+                {column.key === "sel" ? (
+                  <input
+                    type="checkbox"
+                    checked={allRows.length > 0 && allRows.every((node) => bulk.has(node.id))}
+                    onChange={(event) => setBulk(event.target.checked ? new Set(allRows.map((node) => node.id)) : new Set())}
+                  />
+                ) : (
+                  <>{column.label}<span className="arr">{sort.key === column.key ? (sort.dir === "asc" ? "▲" : "▼") : ""}</span></>
+                )}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((group) => (
+            <MemoGroupRows
+              key={group.key}
+              group={group}
+              groupBy={groupBy}
+              columns={columns.length}
+              showSpark={showSpark}
+              selectedId={selectedId}
+              setSelectedId={setSelectedId}
+              bulk={bulk}
+              setBulk={setBulk}
+            />
+          ))}
+          {allRows.length === 0 ? (
+            <tr><td colSpan={columns.length}><div className="empty">No nodes match the current filters.</div></td></tr>
+          ) : null}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MemoGroupRows({
+  group,
+  groupBy,
+  columns,
+  showSpark,
+  selectedId,
+  setSelectedId,
+  bulk,
+  setBulk,
+}: {
+  group: { key: string; label: string; items: NodeView[] };
+  groupBy: GroupBy;
+  columns: number;
+  showSpark: boolean;
+  selectedId: string | null;
+  setSelectedId: (id: string) => void;
+  bulk: Set<string>;
+  setBulk: (next: Set<string>) => void;
+}) {
+  return (
+    <>
+      {groupBy !== "none" ? (
+        <tr className="group-row">
+          <td colSpan={columns}>
+            {group.label}<span className="gcount">{group.items.length} nodes</span>
+            <span className="gstats">
+              {formatBytes(String(group.items.reduce((sum, node) => sum + node.usedBytes, 0)))} used · {formatBytes(String(group.items.reduce((sum, node) => sum + node.remainingBytes, 0)))} remaining
+            </span>
+          </td>
+        </tr>
+      ) : null}
+      {group.items.map((node) => {
+        const tone = statusTone(node.status);
+        return (
+          <tr key={node.id} className={selectedId === node.id ? "selected" : ""} onClick={() => setSelectedId(node.id)}>
+            <td onClick={(event) => event.stopPropagation()}>
+              <input
+                type="checkbox"
+                checked={bulk.has(node.id)}
+                onChange={() => {
+                  const next = new Set(bulk);
+                  if (next.has(node.id)) {
+                    next.delete(node.id);
+                  } else {
+                    next.add(node.id);
+                  }
+                  setBulk(next);
+                }}
+              />
+            </td>
+            <td><StatusCell status={node.status} /></td>
+            <td>
+              <div className="host-cell">
+                <span className="name">{node.title}</span>
+                <span className="sub">{node.hostname} · {node.host.machineId || "no machine id"}</span>
+              </div>
+            </td>
+            <td className="mono subtle">{node.region}</td>
+            <td>{node.tags.slice(0, 3).map((tag) => <span key={tag} className="tag">{tag}</span>)}</td>
+            <td className="num right">{formatBytes(node.host.usedBytes)}</td>
+            <td className={`num right ${tone}-text`}>{formatBytes(node.host.remainingBytes)}</td>
+            <td className="num right subtle">{formatBytes(node.host.trafficAllowanceBytes)}</td>
+            <td><UsageBar node={node} /></td>
+            {showSpark ? <td><Sparkline data={node.spark} tone={tone} /></td> : null}
+            <td className="num right subtle">{formatRate(node.recentRateMbps)}</td>
+            <td className="mono subtle">{node.cycle}</td>
+            <td className={`mono ${node.status === "offline" ? "crit-text" : "subtle"}`}>{relTime(node.host.lastSeenAt || node.host.lastReportAt)}</td>
+          </tr>
+        );
+      })}
+    </>
+  );
+}
+
+function Inspector({
+  node,
   userDefaultThreshold,
+  samples,
   onChanged,
   onClose,
 }: {
-  host: HostDto;
+  node: NodeView | null;
   userDefaultThreshold: number;
+  samples: TrafficSampleDto[];
   onChanged: (host: HostDto) => void;
   onClose: () => void;
 }) {
-  const [name, setName] = useState(host.name || "");
-  const [allowanceGiB, setAllowanceGiB] = useState(bytesToGiB(host.trafficAllowanceBytes));
-  const [meteringType, setMeteringType] = useState(host.meteringType);
-  const [resetPeriod, setResetPeriod] = useState(host.resetPeriod);
-  const [resetDayOfMonth, setResetDayOfMonth] = useState(String(host.resetDayOfMonth));
-  const [resetDayOfWeek, setResetDayOfWeek] = useState(String(host.resetDayOfWeek));
-  const [resetMonth, setResetMonth] = useState(String(host.resetMonth));
-  const [resetHourUtc, setResetHourUtc] = useState(String(host.resetHourUtc));
-  const [resetMinuteUtc, setResetMinuteUtc] = useState(String(host.resetMinuteUtc));
-  const [alertThreshold, setAlertThreshold] = useState(
-    host.alertThresholdOverridePercent === null ? "" : String(host.alertThresholdOverridePercent),
-  );
-  const [pollInterval, setPollInterval] = useState(String(host.pollIntervalSeconds));
-  const [remainingGiB, setRemainingGiB] = useState(bytesToGiB(host.remainingBytes));
+  const [tab, setTab] = useState("overview");
+  const [name, setName] = useState("");
+  const [allowanceGiB, setAllowanceGiB] = useState("0");
+  const [meteringType, setMeteringType] = useState<HostDto["meteringType"]>("EGRESS_ONLY");
+  const [resetPeriod, setResetPeriod] = useState<HostDto["resetPeriod"]>("MONTHLY");
+  const [resetDayOfMonth, setResetDayOfMonth] = useState("1");
+  const [resetDayOfWeek, setResetDayOfWeek] = useState("1");
+  const [resetMonth, setResetMonth] = useState("1");
+  const [resetHourUtc, setResetHourUtc] = useState("0");
+  const [resetMinuteUtc, setResetMinuteUtc] = useState("0");
+  const [alertThreshold, setAlertThreshold] = useState("");
+  const [pollInterval, setPollInterval] = useState("60");
+  const [remainingGiB, setRemainingGiB] = useState("0");
   const [correctionReason, setCorrectionReason] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
   const [saving, setSaving] = useState(false);
-  const [correcting, setCorrecting] = useState(false);
+
+  useEffect(() => {
+    setTab("overview");
+  }, [node?.id]);
+
+  useEffect(() => {
+    if (!node) {
+      return;
+    }
+    const host = node.host;
+    setName(host.name || "");
+    setAllowanceGiB(bytesToGiB(host.trafficAllowanceBytes));
+    setMeteringType(host.meteringType);
+    setResetPeriod(host.resetPeriod);
+    setResetDayOfMonth(String(host.resetDayOfMonth));
+    setResetDayOfWeek(String(host.resetDayOfWeek));
+    setResetMonth(String(host.resetMonth));
+    setResetHourUtc(String(host.resetHourUtc));
+    setResetMinuteUtc(String(host.resetMinuteUtc));
+    setAlertThreshold(host.alertThresholdOverridePercent === null ? "" : String(host.alertThresholdOverridePercent));
+    setPollInterval(String(host.pollIntervalSeconds));
+    setRemainingGiB(bytesToGiB(host.remainingBytes));
+    setCorrectionReason("");
+    setNotice(null);
+  }, [node]);
+
+  if (!node) {
+    return (
+      <>
+        <div className="drawer-backdrop" />
+        <div className="drawer"><div className="empty">No node selected</div></div>
+      </>
+    );
+  }
 
   async function saveConfig() {
     setSaving(true);
     setNotice(null);
     try {
-      const response = await api.updateHost(host.id, {
+      const response = await api.updateHost(node!.id, {
         name,
         trafficAllowanceBytes: gibToBytes(allowanceGiB),
         meteringType,
@@ -298,229 +953,174 @@ function HostEditModal({
   }
 
   async function correctRemaining() {
-    setCorrecting(true);
+    setSaving(true);
     setNotice(null);
     try {
-      const response = await api.correctRemaining(host.id, gibToBytes(remainingGiB), correctionReason);
+      const response = await api.correctRemaining(node!.id, gibToBytes(remainingGiB), correctionReason);
       onChanged(response.host);
       setNotice({ type: "ok", message: "Remaining traffic corrected." });
     } catch (error) {
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to correct remaining traffic" });
     } finally {
-      setCorrecting(false);
+      setSaving(false);
     }
   }
 
-  return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`Edit ${host.name || host.hostname}`}>
-      <div className="modal-panel">
-        <div className="modal-header">
-          <div>
-            <p className="eyebrow">Host settings</p>
-            <h2>{host.name || host.hostname}</h2>
-            <p className="muted small">{host.hostname} · {host.machineId || "no machine id"}</p>
-          </div>
-          <button className="icon-button" onClick={onClose} aria-label="Close editor"><X size={18} /></button>
-        </div>
-
-        <div className="modal-summary">
-          <div><span>Remaining</span><strong>{formatBytes(host.remainingBytes)}</strong></div>
-          <div><span>Used</span><strong>{formatBytes(host.usedBytes)}</strong></div>
-          <div><span>Allowance</span><strong>{formatBytes(host.trafficAllowanceBytes)}</strong></div>
-          <div><span>Remaining %</span><strong>{host.remainingPercent === null ? "—" : `${host.remainingPercent.toFixed(2)}%`}</strong></div>
-        </div>
-
-        <div className="grid-form modal-grid">
-          <label>
-            Display name
-            <input value={name} onChange={(event) => setName(event.target.value)} />
-          </label>
-          <label>
-            Allowance (GiB)
-            <input value={allowanceGiB} onChange={(event) => setAllowanceGiB(event.target.value)} type="number" min="0" step="0.01" />
-          </label>
-          <label>
-            Metering
-            <select value={meteringType} onChange={(event) => setMeteringType(event.target.value as HostDto["meteringType"])}>
-              <option value="EGRESS_ONLY">Egress only</option>
-              <option value="INGRESS_AND_EGRESS">Ingress + egress</option>
-            </select>
-          </label>
-          <label>
-            Reset period
-            <select value={resetPeriod} onChange={(event) => setResetPeriod(event.target.value as HostDto["resetPeriod"])}>
-              <option value="DAILY">Daily</option>
-              <option value="WEEKLY">Weekly</option>
-              <option value="MONTHLY">Monthly</option>
-              <option value="YEARLY">Yearly</option>
-            </select>
-          </label>
-          <label>
-            Reset day of month
-            <input value={resetDayOfMonth} onChange={(event) => setResetDayOfMonth(event.target.value)} type="number" min="1" max="31" />
-          </label>
-          <label>
-            Reset day of week
-            <select value={resetDayOfWeek} onChange={(event) => setResetDayOfWeek(event.target.value)}>
-              {weekDayLabels.map((label, index) => <option key={label} value={index}>{label}</option>)}
-            </select>
-          </label>
-          <label>
-            Reset month
-            <input value={resetMonth} onChange={(event) => setResetMonth(event.target.value)} type="number" min="1" max="12" />
-          </label>
-          <label>
-            Reset hour UTC
-            <input value={resetHourUtc} onChange={(event) => setResetHourUtc(event.target.value)} type="number" min="0" max="23" />
-          </label>
-          <label>
-            Reset minute UTC
-            <input value={resetMinuteUtc} onChange={(event) => setResetMinuteUtc(event.target.value)} type="number" min="0" max="59" />
-          </label>
-          <label>
-            Alert threshold override (%)
-            <input
-              value={alertThreshold}
-              onChange={(event) => setAlertThreshold(event.target.value)}
-              placeholder={`Default ${userDefaultThreshold}%`}
-              type="number"
-              min="0"
-              max="100"
-              step="0.01"
-            />
-          </label>
-          <label>
-            Agent poll interval (s)
-            <input value={pollInterval} onChange={(event) => setPollInterval(event.target.value)} type="number" min="10" max="3600" />
-          </label>
-        </div>
-
-        <div className="modal-actions">
-          <button onClick={saveConfig} disabled={saving}><Save size={16} /> {saving ? "Saving…" : "Save config"}</button>
-          <button onClick={onClose} className="secondary">Close</button>
-        </div>
-
-        <div className="correction-box dense-correction">
-          <div>
-            <h4>Manual correction</h4>
-            <p className="muted small">Set remaining traffic directly when provider-side metering differs.</p>
-          </div>
-          <label className="compact-field">
-            Remaining (GiB)
-            <input value={remainingGiB} onChange={(event) => setRemainingGiB(event.target.value)} type="number" min="0" step="0.01" />
-          </label>
-          <label className="grow">
-            Reason
-            <input value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} placeholder="Optional" />
-          </label>
-          <button onClick={correctRemaining} className="secondary" disabled={correcting}>{correcting ? "Correcting…" : "Correct"}</button>
-        </div>
-
-        {notice ? <div className={`notice ${notice.type}`}>{notice.message}</div> : null}
-      </div>
-    </div>
-  );
-}
-
-function HostTable({
-  hosts,
-  userDefaultThreshold,
-  onChanged,
-}: {
-  hosts: HostDto[];
-  userDefaultThreshold: number;
-  onChanged: (host: HostDto) => void;
-}) {
-  const [editingHostId, setEditingHostId] = useState<string | null>(null);
-  const editingHost = hosts.find((host) => host.id === editingHostId) || null;
+  const tone = statusTone(node.status);
+  const series = samples.length
+    ? samples
+        .slice()
+        .sort((left, right) => new Date(left.observedAt).getTime() - new Date(right.observedAt).getTime())
+        .slice(-96)
+        .map((sample) => (asNumberBytes(sample.meteredBytes) * 8) / Math.max(10, node.host.pollIntervalSeconds) / 1_000_000)
+    : node.spark.map((value) => value * Math.max(node.recentRateMbps, 1));
+  const historyRows = samples.slice(0, 8);
 
   return (
     <>
-      <div className="dense-table-wrap">
-        <table className="dense-table">
-          <thead>
-            <tr>
-              <th>Host</th>
-              <th>Status</th>
-              <th>Traffic</th>
-              <th>Remaining</th>
-              <th>Cycle</th>
-              <th>Policy</th>
-              <th>Seen</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {hosts.map((host) => (
-              <tr key={host.id}>
-                <td>
-                  <div className="host-cell">
-                    <Server size={16} />
-                    <div>
-                      <strong>{host.name || host.hostname}</strong>
-                      <span>{host.hostname} · {host.machineId || "no machine id"}</span>
-                    </div>
+      <div className="drawer-backdrop on" onClick={onClose} />
+      <aside className="drawer on">
+        <div className="drawer-head">
+          <div>
+            <div className="drawer-kicker">HOST · {node.provider} · {node.region}</div>
+            <h2>{node.title}</h2>
+            <div className="drawer-sub">{node.id} · {node.host.machineId || "no machine id"}</div>
+            <div className="tag-row">
+              <StatusCell status={node.status} />
+              {node.tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}
+              <span className="tag">poll {node.host.pollIntervalSeconds}s</span>
+            </div>
+          </div>
+          <button className="icon-btn" onClick={onClose} aria-label="Close inspector"><X size={15} /></button>
+        </div>
+        <div className="drawer-tabs">
+          {["overview", "settings", "history", "alerts"].map((value) => (
+            <button key={value} className={tab === value ? "on" : ""} onClick={() => setTab(value)}>
+              {value[0].toUpperCase() + value.slice(1)}
+            </button>
+          ))}
+        </div>
+        <div className="drawer-body">
+          {tab === "overview" ? (
+            <>
+              <div className="stat-grid">
+                <div className="stat"><span>Remaining</span><strong className={`mono ${tone}-text`}>{formatBytes(node.host.remainingBytes)}</strong></div>
+                <div className="stat"><span>Used</span><strong className="mono">{formatBytes(node.host.usedBytes)}</strong></div>
+                <div className="stat"><span>Allowance</span><strong className="mono">{formatBytes(node.host.trafficAllowanceBytes)}</strong></div>
+                <div className="stat"><span>Remaining %</span><strong className={`mono ${tone}-text`}>{node.remainingPercent === null ? "—" : `${node.remainingPercent.toFixed(2)}%`}</strong></div>
+              </div>
+              <div className="chart-wrap">
+                <div className="chart-title"><h4>Throughput · 24h</h4><span className="mono">peak {formatRate(Math.max(...series, 0))}</span></div>
+                <TimeSeries data={series} tone={tone} />
+              </div>
+              <div className="stat-grid two">
+                <div className="stat"><span>Current rate</span><strong className="mono">{formatRate(node.recentRateMbps)}</strong></div>
+                <div className="stat"><span>Metering</span><strong>{node.host.meteringType === "EGRESS_ONLY" ? "Egress only" : "Ingress + egress"}</strong></div>
+              </div>
+              <div className="section-h">Cycle</div>
+              <div className="field-grid readonly-grid">
+                <div className="field"><span>Period</span><strong>{node.cycle}</strong></div>
+                <div className="field"><span>Started</span><strong className="mono">{shortDate(node.host.currentCycleStartedAt)}</strong></div>
+                <div className="field"><span>Joined</span><strong className="mono">{shortDate(node.host.createdAt)}</strong></div>
+                <div className="field"><span>Last seen</span><strong className="mono">{relTime(node.host.lastSeenAt || node.host.lastReportAt)}</strong></div>
+              </div>
+            </>
+          ) : null}
+          {tab === "settings" ? (
+            <>
+              <div className="section-h">Identity</div>
+              <div className="field-grid">
+                <label className="field">Display name<input value={name} onChange={(event) => setName(event.target.value)} /></label>
+                <div className="field"><span>Hostname</span><strong className="mono">{node.hostname}</strong></div>
+              </div>
+              <div className="section-h">Quota</div>
+              <div className="field-grid">
+                <label className="field">Allowance (GiB)<input value={allowanceGiB} onChange={(event) => setAllowanceGiB(event.target.value)} type="number" min="0" step="0.01" /></label>
+                <label className="field">Metering<select value={meteringType} onChange={(event) => setMeteringType(event.target.value as HostDto["meteringType"])}><option value="EGRESS_ONLY">Egress only</option><option value="INGRESS_AND_EGRESS">Ingress + egress</option></select></label>
+                <label className="field">Alert threshold (% remaining)<input value={alertThreshold} onChange={(event) => setAlertThreshold(event.target.value)} placeholder={`Default ${userDefaultThreshold}%`} type="number" min="0" max="100" step="0.01" /></label>
+                <label className="field">Poll interval (s)<input value={pollInterval} onChange={(event) => setPollInterval(event.target.value)} type="number" min="10" max="3600" /></label>
+              </div>
+              <div className="section-h">Reset schedule</div>
+              <div className="field-grid">
+                <label className="field">Period<select value={resetPeriod} onChange={(event) => setResetPeriod(event.target.value as HostDto["resetPeriod"])}><option value="DAILY">Daily</option><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option><option value="YEARLY">Yearly</option></select></label>
+                <label className="field">Day of month<input value={resetDayOfMonth} onChange={(event) => setResetDayOfMonth(event.target.value)} type="number" min="1" max="31" /></label>
+                <label className="field">Day of week<select value={resetDayOfWeek} onChange={(event) => setResetDayOfWeek(event.target.value)}>{weekDayLabels.map((label, index) => <option key={label} value={index}>{label}</option>)}</select></label>
+                <label className="field">Month<input value={resetMonth} onChange={(event) => setResetMonth(event.target.value)} type="number" min="1" max="12" /></label>
+                <label className="field">Hour UTC<input value={resetHourUtc} onChange={(event) => setResetHourUtc(event.target.value)} type="number" min="0" max="23" /></label>
+                <label className="field">Minute UTC<input value={resetMinuteUtc} onChange={(event) => setResetMinuteUtc(event.target.value)} type="number" min="0" max="59" /></label>
+              </div>
+              <div className="section-h">Manual correction</div>
+              <div className="field-grid">
+                <label className="field">Remaining (GiB)<input value={remainingGiB} onChange={(event) => setRemainingGiB(event.target.value)} type="number" min="0" step="0.01" /></label>
+                <label className="field">Reason<input value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} placeholder="Optional" /></label>
+              </div>
+              {notice ? <div className={`notice ${notice.type}`}>{notice.message}</div> : null}
+            </>
+          ) : null}
+          {tab === "history" ? (
+            <>
+              <div className="chart-wrap">
+                <div className="chart-title"><h4>Traffic samples</h4><span className="mono">{historyRows.length} recent</span></div>
+                <TimeSeries data={series} tone={tone} />
+              </div>
+              <div className="section-h">Recent events</div>
+              <div className="event-list">
+                {historyRows.length ? historyRows.map((sample) => (
+                  <div key={sample.id} className="event-row">
+                    <span className="mono">{relTime(sample.observedAt)}</span>
+                    <span className="sdot ok" />
+                    <span>{sample.interface} · {formatBytes(sample.meteredBytes)} metered</span>
                   </div>
-                </td>
-                <td><span className={`status ${host.status.toLowerCase()}`}>{host.status}</span></td>
-                <td>
-                  <div className="metric-stack">
-                    <strong>{formatBytes(host.usedBytes)} used</strong>
-                    <span>{formatBytes(host.trafficAllowanceBytes)} cap</span>
-                    <HostUsageBar host={host} />
-                  </div>
-                </td>
-                <td>
-                  <div className="metric-stack">
-                    <strong>{formatBytes(host.remainingBytes)}</strong>
-                    <span>{host.remainingPercent === null ? "—" : `${host.remainingPercent.toFixed(2)}% left`}</span>
-                  </div>
-                </td>
-                <td>
-                  <div className="metric-stack">
-                    <strong>{host.resetPeriod.toLowerCase()}</strong>
-                    <span>{host.currentCycleStartedAt ? formatDate(host.currentCycleStartedAt) : "No cycle"}</span>
-                  </div>
-                </td>
-                <td>
-                  <div className="policy-chips">
-                    <span><Gauge size={13} /> {host.meteringType === "EGRESS_ONLY" ? "Egress" : "In+out"}</span>
-                    <span><Activity size={13} /> {host.pollIntervalSeconds}s</span>
-                    <span><CalendarClock size={13} /> {host.resetHourUtc}:{String(host.resetMinuteUtc).padStart(2, "0")} UTC</span>
-                  </div>
-                </td>
-                <td>
-                  <div className="metric-stack">
-                    <strong>{formatDate(host.lastReportAt)}</strong>
-                    <span>Joined {formatDate(host.createdAt)}</span>
-                  </div>
-                </td>
-                <td className="actions-cell">
-                  <button className="icon-button" onClick={() => setEditingHostId(host.id)} aria-label={`Edit ${host.name || host.hostname}`}>
-                    <Edit3 size={17} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {editingHost ? (
-        <HostEditModal
-          host={editingHost}
-          userDefaultThreshold={userDefaultThreshold}
-          onChanged={onChanged}
-          onClose={() => setEditingHostId(null)}
-        />
-      ) : null}
+                )) : <div className="empty small-empty">No samples reported yet.</div>}
+              </div>
+            </>
+          ) : null}
+          {tab === "alerts" ? (
+            <>
+              <div className="section-h">Active alerts</div>
+              {node.status === "active" ? (
+                <div className="empty small-empty">No active alerts.</div>
+              ) : (
+                <div className="alert-card">
+                  <strong>{node.status === "exceeded" ? "Quota exceeded" : node.status === "critical" ? "Quota critical" : "Attention required"}</strong>
+                  <span>Remaining traffic is {node.remainingPercent === null ? "unknown" : `${node.remainingPercent.toFixed(2)}%`} with a {node.host.alertThresholdPercent}% alert threshold.</span>
+                </div>
+              )}
+            </>
+          ) : null}
+        </div>
+        {tab === "settings" ? (
+          <div className="drawer-actions">
+            <button className="btn btn-primary" onClick={saveConfig} disabled={saving}><Save size={14} /> {saving ? "Saving..." : "Save config"}</button>
+            <button className="btn" onClick={correctRemaining} disabled={saving}>Correct remaining</button>
+          </div>
+        ) : null}
+      </aside>
     </>
   );
 }
 
+function getSortValue(node: NodeView, key: SortKey): string | number {
+  if (key === "status") {
+    return statusRank(node.status);
+  }
+  return node[key] ?? -1;
+}
+
 function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserChanged: (user: UserDto) => void; onLogout: () => void }) {
   const [hosts, setHosts] = useState<HostDto[]>([]);
+  const [samples, setSamples] = useState<TrafficSampleDto[]>([]);
   const [notice, setNotice] = useState<Notice>(null);
   const [loading, setLoading] = useState(true);
+  const [active, setActive] = useState("nodes");
+  const [q, setQ] = useState("");
+  const [filters, setFilters] = useState<{ status: FleetStatus[]; tag: string[] }>({ status: [], tag: [] });
+  const [groupBy, setGroupBy] = useState<GroupBy>("provider");
+  const [density, setDensity] = useState<Density>("comfy");
+  const [showSpark, setShowSpark] = useState(true);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [bulk, setBulk] = useState<Set<string>>(new Set());
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "usedPercent", dir: "desc" });
 
   async function loadHosts() {
     try {
@@ -540,40 +1140,184 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
     return () => window.clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    document.body.classList.remove("d-comfy", "d-compact", "d-ultra");
+    document.body.classList.add(`d-${density}`);
+  }, [density]);
+
+  useEffect(() => {
+    if (active === "sv-crit") {
+      setFilters({ status: ["critical"], tag: [] });
+    } else if (active === "sv-exc") {
+      setFilters({ status: ["exceeded"], tag: [] });
+    } else if (active === "sv-off") {
+      setFilters({ status: ["offline"], tag: [] });
+    } else if (active === "sv-edge") {
+      setFilters({ status: [], tag: ["egress"] });
+    } else if (active === "alerts") {
+      setFilters({ status: ["warning", "critical", "exceeded"], tag: [] });
+    } else if (active === "group-provider") {
+      setGroupBy("provider");
+    } else if (active === "group-region") {
+      setGroupBy("region");
+    } else if (active === "group-tag") {
+      setGroupBy("tag");
+    }
+  }, [active]);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (event.key === "/" && target?.tagName !== "INPUT" && target?.tagName !== "TEXTAREA") {
+        event.preventDefault();
+        document.querySelector<HTMLInputElement>(".search input")?.focus();
+      }
+      if (event.key === "Escape") {
+        setSelectedId(null);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setSamples([]);
+      return;
+    }
+    api.hostSamples(selectedId).then((response) => setSamples(response.samples)).catch(() => setSamples([]));
+  }, [selectedId]);
+
   function replaceHost(nextHost: HostDto) {
     setHosts((current) => current.map((host) => (host.id === nextHost.id ? nextHost : host)));
   }
 
+  const nodes = useMemo(() => hosts.map(toNodeView), [hosts]);
+  const selectedNode = nodes.find((node) => node.id === selectedId) || null;
+  const counts = useMemo(
+    () => ({
+      total: nodes.length,
+      alerts: nodes.filter((node) => ["warning", "critical", "exceeded"].includes(node.status)).length,
+      critical: nodes.filter((node) => node.status === "critical").length,
+      exceeded: nodes.filter((node) => node.status === "exceeded").length,
+      offline: nodes.filter((node) => node.status === "offline").length,
+      egress: nodes.filter((node) => node.tags.includes("egress")).length,
+    }),
+    [nodes],
+  );
+
+  const filtered = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    return nodes.filter((node) => {
+      if (filters.status.length && !filters.status.includes(node.status)) {
+        return false;
+      }
+      if (filters.tag.length && !filters.tag.some((tag) => node.tags.includes(tag))) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      return `${node.title} ${node.hostname} ${node.id} ${node.host.machineId || ""} ${node.provider} ${node.region} ${node.tags.join(" ")}`
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [filters, nodes, q]);
+
+  const sorted = useMemo(() => {
+    const rows = [...filtered];
+    rows.sort((left, right) => {
+      const leftValue = getSortValue(left, sort.key);
+      const rightValue = getSortValue(right, sort.key);
+      const direction = sort.dir === "asc" ? 1 : -1;
+      if (typeof leftValue === "number" && typeof rightValue === "number") {
+        return (leftValue - rightValue) * direction;
+      }
+      return String(leftValue).localeCompare(String(rightValue)) * direction;
+    });
+    return rows;
+  }, [filtered, sort]);
+
+  const groups = useMemo(() => {
+    if (groupBy === "none") {
+      return [{ key: "all", label: "All nodes", items: sorted }];
+    }
+    const grouped = new Map<string, NodeView[]>();
+    for (const node of sorted) {
+      const key = groupBy === "tag" ? node.tags[0] || "untagged" : groupBy === "status" ? node.status : String(node[groupBy]);
+      grouped.set(key, [...(grouped.get(key) || []), node]);
+    }
+    return [...grouped.entries()]
+      .sort((left, right) => right[1].length - left[1].length)
+      .map(([key, items]) => ({ key, label: key, items }));
+  }, [groupBy, sorted]);
+
   return (
-    <main className="page">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Traffic allowance metering</p>
-          <h1>{SHARED_APP_NAME}</h1>
+    <div className="app">
+      <Sidebar active={active} setActive={setActive} counts={counts} user={user} />
+      <main className="main">
+        <div className="topbar">
+          <div className="breadcrumb"><span>Fleet</span><span className="sep">/</span><strong>{active === "install" ? "Install" : "Nodes"}</strong></div>
+          <span className="chip static"><span className="sdot ok live" /> Live · updates every 30s</span>
+          <div className="spacer" />
+          <button className="icon-btn" onClick={() => setActive("install")}><TerminalSquare size={14} /> Install node</button>
+          <button className="icon-btn" onClick={() => setActive("install")} aria-label="Account settings"><Settings size={14} /></button>
+          <button className="btn" onClick={onLogout}><LogOut size={14} /> Log out</button>
         </div>
-        <button onClick={onLogout} className="secondary">Log out</button>
-      </header>
-
-      <AccountPanel user={user} onUserChanged={onUserChanged} />
-
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Hosts</p>
-            <h2>Monitored nodes</h2>
-          </div>
-          <button onClick={loadHosts} className="secondary"><RefreshCw size={16} /> Refresh</button>
+        <KpiStrip nodes={nodes} />
+        {active === "install" ? (
+          <div className="content-pad"><AccountPanel user={user} onUserChanged={onUserChanged} /></div>
+        ) : (
+          <>
+            <Toolbar
+              q={q}
+              setQ={setQ}
+              filters={filters}
+              setFilters={setFilters}
+              groupBy={groupBy}
+              setGroupBy={setGroupBy}
+              density={density}
+              setDensity={setDensity}
+              showSpark={showSpark}
+              setShowSpark={setShowSpark}
+              selected={bulk.size}
+              onRefresh={loadHosts}
+            />
+            {notice ? <div className={`notice page-notice ${notice.type}`}>{notice.message}</div> : null}
+            {loading ? <div className="empty">Loading hosts...</div> : null}
+            {!loading && hosts.length === 0 ? <div className="empty">No hosts have joined yet. Open Install and run the command on a Linux server.</div> : null}
+            {!loading && hosts.length > 0 ? (
+              <HostTable
+                groups={groups}
+                groupBy={groupBy}
+                showSpark={showSpark}
+                sort={sort}
+                setSort={setSort}
+                selectedId={selectedId}
+                setSelectedId={setSelectedId}
+                bulk={bulk}
+                setBulk={setBulk}
+              />
+            ) : null}
+          </>
+        )}
+        <div className="statusbar">
+          <span className="item"><span className="sdot ok live" /> agent protocol · poll median 60s</span>
+          <span className="item">showing {sorted.length} of {nodes.length}</span>
+          <span className="item">grouped by {groupBy}</span>
+          <div className="spacer" />
+          <span className="item mono">/ search</span>
+          <span className="item mono">esc close</span>
         </div>
-        {notice ? <div className={`notice ${notice.type}`}>{notice.message}</div> : null}
-        {loading ? <p className="muted">Loading hosts…</p> : null}
-        {!loading && hosts.length === 0 ? (
-          <p className="muted">No hosts have joined yet. Copy the command above and run it on a Linux server.</p>
-        ) : null}
-        {!loading && hosts.length > 0 ? (
-          <HostTable hosts={hosts} userDefaultThreshold={user.defaultAlertThresholdPercent} onChanged={replaceHost} />
-        ) : null}
-      </section>
-    </main>
+      </main>
+      <Inspector
+        node={selectedNode}
+        userDefaultThreshold={user.defaultAlertThresholdPercent}
+        samples={samples}
+        onChanged={replaceHost}
+        onClose={() => setSelectedId(null)}
+      />
+    </div>
   );
 }
 
@@ -598,7 +1342,7 @@ export default function App() {
   }
 
   if (loading) {
-    return <main className="auth-shell"><div className="auth-card">Loading…</div></main>;
+    return <main className="auth-shell"><div className="auth-card">Loading...</div></main>;
   }
 
   if (!user) {

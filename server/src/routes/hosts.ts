@@ -10,7 +10,17 @@ import { ensureResetForHost } from "../services/resetScheduler";
 const router = Router();
 router.use(requireUser);
 
-function hostDto(host: Host, user: User) {
+type HostSampleMetrics = {
+  recentRateMbps: number;
+  trafficSpark: number[];
+};
+
+const EMPTY_SAMPLE_METRICS: HostSampleMetrics = {
+  recentRateMbps: 0,
+  trafficSpark: [],
+};
+
+function hostDto(host: Host, user: User, sampleMetrics: HostSampleMetrics = EMPTY_SAMPLE_METRICS) {
   const threshold = host.alertThresholdBasisPts ?? user.defaultAlertThresholdBasisPts;
   return {
     id: host.id,
@@ -33,12 +43,66 @@ function hostDto(host: Host, user: User) {
     currentCycleStartedAt: host.currentCycleStartedAt,
     lastSeenAt: host.lastSeenAt,
     lastReportAt: host.lastReportAt,
+    recentRateMbps: sampleMetrics.recentRateMbps,
+    trafficSpark: sampleMetrics.trafficSpark,
     alertThresholdPercent: percentBasisPointsToPercent(threshold),
     alertThresholdOverridePercent:
       host.alertThresholdBasisPts === null ? null : percentBasisPointsToPercent(host.alertThresholdBasisPts),
     pollIntervalSeconds: host.pollIntervalSeconds,
     createdAt: host.createdAt,
   };
+}
+
+async function buildSampleMetrics(hostIds: string[]): Promise<Map<string, HostSampleMetrics>> {
+  const metrics = new Map<string, HostSampleMetrics>();
+  if (hostIds.length === 0) {
+    return metrics;
+  }
+
+  const now = new Date();
+  const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const rateSince = new Date(now.getTime() - 5 * 60 * 1000);
+  const bucketCount = 48;
+  const bucketMs = (now.getTime() - since.getTime()) / bucketCount;
+
+  const samples = await prisma.trafficSample.findMany({
+    where: {
+      hostId: { in: hostIds },
+      observedAt: { gte: since },
+    },
+    orderBy: { observedAt: "asc" },
+  });
+
+  for (const hostId of hostIds) {
+    metrics.set(hostId, { recentRateMbps: 0, trafficSpark: Array(bucketCount).fill(0) as number[] });
+  }
+
+  const recentBytesByHost = new Map<string, bigint>();
+  for (const sample of samples) {
+    const hostMetrics = metrics.get(sample.hostId);
+    if (!hostMetrics) {
+      continue;
+    }
+
+    const bucketIndex = Math.min(
+      bucketCount - 1,
+      Math.max(0, Math.floor((sample.observedAt.getTime() - since.getTime()) / bucketMs)),
+    );
+    hostMetrics.trafficSpark[bucketIndex] += Number(sample.meteredBytes);
+
+    if (sample.observedAt >= rateSince) {
+      recentBytesByHost.set(sample.hostId, (recentBytesByHost.get(sample.hostId) ?? 0n) + sample.meteredBytes);
+    }
+  }
+
+  for (const [hostId, recentBytes] of recentBytesByHost) {
+    const hostMetrics = metrics.get(hostId);
+    if (hostMetrics) {
+      hostMetrics.recentRateMbps = Number(recentBytes) * 8 / 300 / 1_000_000;
+    }
+  }
+
+  return metrics;
 }
 
 async function requireOwnedHost(userId: string, hostId: string): Promise<Host> {
@@ -69,8 +133,9 @@ router.get(
       where: { userId: req.user!.id },
       orderBy: [{ status: "asc" }, { hostname: "asc" }],
     });
+    const sampleMetrics = await buildSampleMetrics(refreshed.map((host) => host.id));
 
-    sendJson(res, { hosts: refreshed.map((host) => hostDto(host, req.user!)) });
+    sendJson(res, { hosts: refreshed.map((host) => hostDto(host, req.user!, sampleMetrics.get(host.id))) });
   }),
 );
 
@@ -79,7 +144,8 @@ router.get(
   asyncHandler(async (req, res) => {
     const host = await requireOwnedHost(req.user!.id, requireRouteParam(req.params.id, "id"));
     const current = await ensureResetForHost(host);
-    sendJson(res, { host: hostDto(current, req.user!) });
+    const sampleMetrics = await buildSampleMetrics([current.id]);
+    sendJson(res, { host: hostDto(current, req.user!, sampleMetrics.get(current.id)) });
   }),
 );
 
@@ -154,7 +220,8 @@ router.patch(
     validateResetConfig(resetData);
 
     const host = await prisma.host.update({ where: { id: current.id }, data });
-    sendJson(res, { host: hostDto(host, req.user!) });
+    const sampleMetrics = await buildSampleMetrics([host.id]);
+    sendJson(res, { host: hostDto(host, req.user!, sampleMetrics.get(host.id)) });
   }),
 );
 
@@ -181,7 +248,8 @@ router.post(
       });
     });
 
-    sendJson(res, { host: hostDto(host, req.user!) });
+    const sampleMetrics = await buildSampleMetrics([host.id]);
+    sendJson(res, { host: hostDto(host, req.user!, sampleMetrics.get(host.id)) });
   }),
 );
 
