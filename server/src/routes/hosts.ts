@@ -49,6 +49,13 @@ async function requireOwnedHost(userId: string, hostId: string): Promise<Host> {
   return host;
 }
 
+function requireRouteParam(value: string | string[] | undefined, fieldName: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new HttpError(400, `${fieldName} is required`);
+  }
+  return value;
+}
+
 router.get(
   "/",
   asyncHandler(async (req, res) => {
@@ -70,7 +77,7 @@ router.get(
 router.get(
   "/:id",
   asyncHandler(async (req, res) => {
-    const host = await requireOwnedHost(req.user!.id, req.params.id);
+    const host = await requireOwnedHost(req.user!.id, requireRouteParam(req.params.id, "id"));
     const current = await ensureResetForHost(host);
     sendJson(res, { host: hostDto(current, req.user!) });
   }),
@@ -79,7 +86,7 @@ router.get(
 router.patch(
   "/:id",
   asyncHandler(async (req, res) => {
-    const current = await requireOwnedHost(req.user!.id, req.params.id);
+    const current = await requireOwnedHost(req.user!.id, requireRouteParam(req.params.id, "id"));
     const data: Prisma.HostUpdateInput = {};
     const resetData: Record<string, number> = {};
 
@@ -154,7 +161,7 @@ router.patch(
 router.post(
   "/:id/correct-remaining",
   asyncHandler(async (req, res) => {
-    const current = await requireOwnedHost(req.user!.id, req.params.id);
+    const current = await requireOwnedHost(req.user!.id, requireRouteParam(req.params.id, "id"));
     const newRemainingBytes = parseBytes(req.body.remainingBytes, "remainingBytes");
     const reason = typeof req.body.reason === "string" && req.body.reason.trim() ? req.body.reason.trim() : null;
 
@@ -181,7 +188,7 @@ router.post(
 router.get(
   "/:id/samples",
   asyncHandler(async (req, res) => {
-    const host = await requireOwnedHost(req.user!.id, req.params.id);
+    const host = await requireOwnedHost(req.user!.id, requireRouteParam(req.params.id, "id"));
     const samples = await prisma.trafficSample.findMany({
       where: { hostId: host.id },
       orderBy: { observedAt: "desc" },
