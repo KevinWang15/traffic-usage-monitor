@@ -867,12 +867,14 @@ function Inspector({
   userDefaultThreshold,
   samples,
   onChanged,
+  onToast,
   onClose,
 }: {
   node: NodeView | null;
   userDefaultThreshold: number;
   samples: TrafficSampleDto[];
   onChanged: (host: HostDto) => void;
+  onToast: (notice: NonNullable<Notice>) => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState("overview");
@@ -948,6 +950,7 @@ function Inspector({
       });
       onChanged(response.host);
       setNotice({ type: "ok", message: "Host configuration saved." });
+      onToast({ type: "ok", message: "Host configuration saved." });
     } catch (error) {
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to save host" });
     } finally {
@@ -1127,6 +1130,7 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
   const [hosts, setHosts] = useState<HostDto[]>([]);
   const [samples, setSamples] = useState<TrafficSampleDto[]>([]);
   const [notice, setNotice] = useState<Notice>(null);
+  const [toast, setToast] = useState<Notice>(null);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState("nodes");
   const [q, setQ] = useState("");
@@ -1160,6 +1164,14 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
     document.body.classList.remove("d-comfy", "d-compact", "d-ultra");
     document.body.classList.add(`d-${density}`);
   }, [density]);
+
+  useEffect(() => {
+    if (!toast) {
+      return;
+    }
+    const timer = window.setTimeout(() => setToast(null), 3200);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   useEffect(() => {
     if (active === "sv-crit") {
@@ -1331,8 +1343,10 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
         userDefaultThreshold={user.defaultAlertThresholdPercent}
         samples={samples}
         onChanged={replaceHost}
+        onToast={setToast}
         onClose={() => setSelectedId(null)}
       />
+      {toast ? <div className={`toast ${toast.type}`} role="status" aria-live="polite">{toast.message}</div> : null}
     </div>
   );
 }
