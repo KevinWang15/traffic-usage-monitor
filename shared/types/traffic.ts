@@ -1,0 +1,38 @@
+export type MeteringType = "EGRESS_ONLY" | "INGRESS_AND_EGRESS";
+export type ResetPeriod = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
+export type HostStatus = "ACTIVE" | "STALE" | "DISABLED";
+
+export type HostDto = {
+  id: string;
+  name: string | null;
+  hostname: string;
+  machineId: string | null;
+  status: HostStatus;
+  trafficAllowanceBytes: string;
+  remainingBytes: string;
+  usedBytes: string;
+  remainingPercent: number | null;
+  meteringType: MeteringType;
+  resetPeriod: ResetPeriod;
+  resetDayOfMonth: number;
+  resetDayOfWeek: number;
+  resetMonth: number;
+  resetHourUtc: number;
+  resetMinuteUtc: number;
+  currentCycleId: string | null;
+  currentCycleStartedAt: string | null;
+  lastSeenAt: string | null;
+  lastReportAt: string | null;
+  alertThresholdPercent: number;
+  alertThresholdOverridePercent: number | null;
+  pollIntervalSeconds: number;
+  createdAt: string;
+};
+
+export type UserDto = {
+  id: string;
+  email: string;
+  name: string | null;
+  defaultAlertThresholdPercent: number;
+  createdAt: string;
+};
