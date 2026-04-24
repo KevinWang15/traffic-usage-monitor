@@ -151,6 +151,7 @@ create_app_secret() {
     write_env_key HEALTHCHECKS_PING_URL
     write_env_key EMAIL_VERIFICATION_TOKEN_TTL_MINUTES
     write_env_key PASSWORD_RESET_TOKEN_TTL_MINUTES
+    write_env_key MISSING_NODE_GRACE_MINUTES
   } >"$tmp_env"
 
   kubectl create secret generic "$SECRET_NAME" \

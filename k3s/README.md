@@ -25,3 +25,5 @@ Set `PUBLIC_URL` to the external HTTPS origin users and agents can reach. Dashbo
 The app exposes Prometheus-format metrics at `/api/metrics`. The generated Service includes standard `prometheus.io/*` scrape annotations, and `deploy.sh` also installs Prometheus by default with a static scrape target for the app Service. Prometheus is exposed on `DEPLOYMENT_PROMETHEUS_NODE_PORT` (`30090` by default).
 
 Set `DEPLOYMENT_CREATE_PROMETHEUS=false` if you want to use an external Prometheus instead. The checked-in `k3s/prometheus.yaml` mirrors the default rendered resources for a fixed `traffic-usage-monitor` namespace; `deploy.sh render` should be used when names, ports, image, storage class, or retention are customized.
+
+Missing-node detection runs in the app maintenance scheduler. `MISSING_NODE_GRACE_MINUTES` defaults to `60`; after that grace period without agent contact, a host is marked `STALE` and a separate missing-node email is sent at most once every 3 hours per host.

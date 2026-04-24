@@ -1,7 +1,9 @@
 import type { Host } from "@prisma/client";
 import axios from "axios";
+import { env } from "../config";
 import prisma from "../prisma";
 import { normalizeCycleStart } from "../lib/cycles";
+import { maybeSendMissingHostAlert } from "./alerts";
 
 async function pingHealthcheck(): Promise<void> {
   const pingUrl = process.env.HEALTHCHECKS_PING_URL;
@@ -63,10 +65,12 @@ export async function ensureResetForHost(host: Host, now = new Date()): Promise<
 
 export async function runResetSweep(now = new Date()): Promise<void> {
   let cursor: string | undefined;
+  const missingCutoff = new Date(now.getTime() - env.missingNodeGraceMinutes * 60 * 1000);
 
   while (true) {
     const hosts = await prisma.host.findMany({
       where: { status: { not: "DISABLED" } },
+      include: { user: true },
       take: 500,
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
       orderBy: { id: "asc" },
@@ -79,6 +83,16 @@ export async function runResetSweep(now = new Date()): Promise<void> {
     for (const host of hosts) {
       try {
         await ensureResetForHost(host, now);
+        const lastContactAt = host.lastSeenAt ?? host.lastReportAt ?? host.joinedAt ?? host.createdAt;
+        if (lastContactAt < missingCutoff) {
+          if (host.status !== "STALE") {
+            await prisma.host.update({
+              where: { id: host.id },
+              data: { status: "STALE" },
+            });
+          }
+          await maybeSendMissingHostAlert(host, now);
+        }
       } catch (error) {
         console.error(`Reset check failed for host ${host.id}`, error);
       }

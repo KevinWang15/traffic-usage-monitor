@@ -17,7 +17,7 @@ import { bytesToGiB, formatBytes, gibToBytes } from "./lib";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset" | "verify";
 type Notice = { type: "ok" | "error"; message: string } | null;
-type FleetStatus = "active" | "warning" | "critical" | "exceeded" | "offline" | "disabled";
+type FleetStatus = "active" | "warning" | "critical" | "exceeded" | "missing" | "disabled";
 type Density = "comfy" | "compact" | "ultra";
 type GroupBy = "none" | "provider" | "region" | "tag" | "status";
 type SortKey =
@@ -58,7 +58,7 @@ const statusOptions: Array<{ value: FleetStatus; label: string }> = [
   { value: "warning", label: "Warning" },
   { value: "critical", label: "Critical" },
   { value: "exceeded", label: "Exceeded" },
-  { value: "offline", label: "Offline" },
+  { value: "missing", label: "Missing" },
   { value: "disabled", label: "Disabled" },
 ];
 
@@ -82,7 +82,7 @@ function deriveStatus(host: HostDto): FleetStatus {
     return "disabled";
   }
   if (host.status === "STALE") {
-    return "offline";
+    return "missing";
   }
   if (host.remainingPercent === null) {
     return "active";
@@ -113,7 +113,7 @@ function statusTone(status: FleetStatus): "ok" | "warn" | "crit" | "off" {
 }
 
 function statusRank(status: FleetStatus): number {
-  return { exceeded: 5, critical: 4, warning: 3, offline: 2, disabled: 1, active: 0 }[status];
+  return { missing: 6, exceeded: 5, critical: 4, warning: 3, disabled: 1, active: 0 }[status];
 }
 
 function labelStatus(status: FleetStatus): string {
@@ -514,7 +514,7 @@ function Sidebar({
   const saved = [
     { id: "sv-crit", label: "Critical <= 10%", count: counts.critical },
     { id: "sv-exc", label: "Exceeded quota", count: counts.exceeded },
-    { id: "sv-off", label: "Offline", count: counts.offline },
+    { id: "sv-off", label: "Missing > 1h", count: counts.missing },
     { id: "sv-edge", label: "tag:egress", count: counts.egress },
   ];
   return (
@@ -564,7 +564,7 @@ function KpiStrip({ nodes }: { nodes: NodeView[] }) {
     const totalRemaining = nodes.reduce((sum, node) => sum + node.remainingBytes, 0);
     return {
       total: nodes.length,
-      online: nodes.filter((node) => node.status !== "offline" && node.status !== "disabled").length,
+      online: nodes.filter((node) => node.status !== "missing" && node.status !== "disabled").length,
       critical: nodes.filter((node) => node.status === "critical").length,
       exceeded: nodes.filter((node) => node.status === "exceeded").length,
       warning: nodes.filter((node) => node.status === "warning").length,
@@ -586,7 +586,7 @@ function KpiStrip({ nodes }: { nodes: NodeView[] }) {
       <div className="kpi">
         <div className="kpi-label">Fleet</div>
         <div className="kpi-value num">{totals.online}<span className="unit">/ {totals.total} online</span></div>
-        <div className="kpi-meta"><span className="sdot ok live" /> {totals.online} up · <span className="sdot off" /> {totals.total - totals.online} down</div>
+        <div className="kpi-meta"><span className="sdot ok live" /> {totals.online} up · <span className="sdot off" /> {totals.total - totals.online} missing/disabled</div>
       </div>
       <div className="kpi">
         <div className="kpi-label">Fleet throughput</div>
@@ -854,7 +854,7 @@ function MemoGroupRows({
             {showSpark ? <td><Sparkline data={node.spark} tone={tone} /></td> : null}
             <td className="num right subtle">{formatRate(node.recentRateMbps)}</td>
             <td className="mono subtle">{node.cycle}</td>
-            <td className={`mono ${node.status === "offline" ? "crit-text" : "subtle"}`}>{relTime(node.host.lastSeenAt || node.host.lastReportAt)}</td>
+            <td className={`mono ${node.status === "missing" ? "crit-text" : "subtle"}`}>{relTime(node.host.lastSeenAt || node.host.lastReportAt)}</td>
           </tr>
         );
       })}
@@ -1082,8 +1082,20 @@ function Inspector({
                 <div className="empty small-empty">No active alerts.</div>
               ) : (
                 <div className="alert-card">
-                  <strong>{node.status === "exceeded" ? "Quota exceeded" : node.status === "critical" ? "Quota critical" : "Attention required"}</strong>
-                  <span>Remaining traffic is {node.remainingPercent === null ? "unknown" : `${node.remainingPercent.toFixed(2)}%`} with a {node.host.alertThresholdPercent}% alert threshold.</span>
+                  <strong>
+                    {node.status === "missing"
+                      ? "Node missing"
+                      : node.status === "exceeded"
+                        ? "Quota exceeded"
+                        : node.status === "critical"
+                          ? "Quota critical"
+                          : "Attention required"}
+                  </strong>
+                  <span>
+                    {node.status === "missing"
+                      ? `Last contact was ${relTime(node.host.lastSeenAt || node.host.lastReportAt)}. Missing-node emails are sent separately and throttled to one every 3 hours.`
+                      : `Remaining traffic is ${node.remainingPercent === null ? "unknown" : `${node.remainingPercent.toFixed(2)}%`} with a ${node.host.alertThresholdPercent}% alert threshold.`}
+                  </span>
                 </div>
               )}
             </>
@@ -1151,11 +1163,11 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
     } else if (active === "sv-exc") {
       setFilters({ status: ["exceeded"], tag: [] });
     } else if (active === "sv-off") {
-      setFilters({ status: ["offline"], tag: [] });
+      setFilters({ status: ["missing"], tag: [] });
     } else if (active === "sv-edge") {
       setFilters({ status: [], tag: ["egress"] });
     } else if (active === "alerts") {
-      setFilters({ status: ["warning", "critical", "exceeded"], tag: [] });
+      setFilters({ status: ["warning", "critical", "exceeded", "missing"], tag: [] });
     } else if (active === "group-provider") {
       setGroupBy("provider");
     } else if (active === "group-region") {
@@ -1197,10 +1209,10 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
   const counts = useMemo(
     () => ({
       total: nodes.length,
-      alerts: nodes.filter((node) => ["warning", "critical", "exceeded"].includes(node.status)).length,
+      alerts: nodes.filter((node) => ["warning", "critical", "exceeded", "missing"].includes(node.status)).length,
       critical: nodes.filter((node) => node.status === "critical").length,
       exceeded: nodes.filter((node) => node.status === "exceeded").length,
-      offline: nodes.filter((node) => node.status === "offline").length,
+      missing: nodes.filter((node) => node.status === "missing").length,
       egress: nodes.filter((node) => node.tags.includes("egress")).length,
     }),
     [nodes],

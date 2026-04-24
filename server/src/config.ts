@@ -18,6 +18,7 @@ export const env = {
   jwtSecret: requiredEnv("JWT_SECRET", "replace-with-a-long-random-secret"),
   emailVerificationTokenTtlMinutes: Number(process.env.EMAIL_VERIFICATION_TOKEN_TTL_MINUTES || 1440),
   passwordResetTokenTtlMinutes: Number(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES || 60),
+  missingNodeGraceMinutes: Number(process.env.MISSING_NODE_GRACE_MINUTES || 60),
 };
 
 if (env.nodeEnv === "production" && env.jwtSecret === "replace-with-a-long-random-secret") {

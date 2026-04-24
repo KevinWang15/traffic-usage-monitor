@@ -4,6 +4,8 @@ import { formatBytes } from "../lib/bytes";
 import { sendEmail } from "../lib/email";
 
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
+export const MISSING_ALERT_SENT_STATUS = "MISSING_SENT";
+export const MISSING_ALERT_ERROR_STATUS = "MISSING_ERROR";
 
 type HostWithUser = Host & { user: User };
 
@@ -85,6 +87,65 @@ export async function maybeSendTrafficAlert(host: HostWithUser): Promise<void> {
         allowanceBytes: host.trafficAllowanceBytes,
         thresholdBasisPts: thresholdBasisPoints,
         status: "ERROR",
+        errorMessage,
+      },
+    });
+  }
+}
+
+export async function maybeSendMissingHostAlert(host: HostWithUser, now = new Date()): Promise<void> {
+  const lastContactAt = host.lastSeenAt ?? host.lastReportAt ?? host.joinedAt ?? host.createdAt;
+  const recentMissingAlert = await prisma.alertEvent.findFirst({
+    where: {
+      hostId: host.id,
+      status: { in: [MISSING_ALERT_SENT_STATUS, MISSING_ALERT_ERROR_STATUS] },
+      createdAt: { gte: new Date(now.getTime() - THREE_HOURS_MS) },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (recentMissingAlert) {
+    return;
+  }
+
+  const hostLabel = host.name || host.hostname;
+  const lastContactText = lastContactAt ? lastContactAt.toISOString() : "never";
+  const subject = `Node missing: ${hostLabel} has not reported`;
+  const html = `
+    <h2>Node missing</h2>
+    <p>Host <strong>${escapeHtml(hostLabel)}</strong> has not reported within the missing-node grace period.</p>
+    <ul>
+      <li>Last contact: <strong>${escapeHtml(lastContactText)}</strong></li>
+      <li>Hostname: ${escapeHtml(host.hostname)}</li>
+      <li>Machine ID: ${escapeHtml(host.machineId || "unknown")}</li>
+      <li>Poll interval: ${host.pollIntervalSeconds} seconds</li>
+    </ul>
+    <p>This alert is separate from traffic allowance alerts and is throttled to at most one email every 3 hours per host.</p>
+  `;
+
+  try {
+    await sendEmail({ to: host.user.email, subject, html });
+    await prisma.alertEvent.create({
+      data: {
+        hostId: host.id,
+        userId: host.userId,
+        remainingBytes: host.remainingBytes,
+        allowanceBytes: host.trafficAllowanceBytes,
+        thresholdBasisPts: 0,
+        status: MISSING_ALERT_SENT_STATUS,
+      },
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to send missing-node alert for host ${host.id}: ${errorMessage}`);
+    await prisma.alertEvent.create({
+      data: {
+        hostId: host.id,
+        userId: host.userId,
+        remainingBytes: host.remainingBytes,
+        allowanceBytes: host.trafficAllowanceBytes,
+        thresholdBasisPts: 0,
+        status: MISSING_ALERT_ERROR_STATUS,
         errorMessage,
       },
     });
