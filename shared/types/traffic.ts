@@ -5,6 +5,7 @@ export type HostStatus = "ACTIVE" | "STALE" | "DISABLED";
 export type HostDto = {
   id: string;
   name: string | null;
+  notes: string | null;
   hostname: string;
   machineId: string | null;
   status: HostStatus;

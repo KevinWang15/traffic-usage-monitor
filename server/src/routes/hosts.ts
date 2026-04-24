@@ -25,6 +25,7 @@ function hostDto(host: Host, user: User, sampleMetrics: HostSampleMetrics = EMPT
   return {
     id: host.id,
     name: host.name,
+    notes: host.notes,
     hostname: host.hostname,
     machineId: host.machineId,
     status: host.status,
@@ -158,6 +159,9 @@ router.patch(
 
     if (req.body.name !== undefined) {
       data.name = optionalBodyString(req.body.name) ?? null;
+    }
+    if (req.body.notes !== undefined) {
+      data.notes = optionalBodyString(req.body.notes) ?? null;
     }
     if (req.body.trafficAllowanceBytes !== undefined) {
       const newAllowance = parseBytes(req.body.trafficAllowanceBytes, "trafficAllowanceBytes");

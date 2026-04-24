@@ -18,6 +18,14 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#039;");
 }
 
+function hostNotesHtml(host: Host): string {
+  const notes = host.notes?.trim();
+  if (!notes) {
+    return "";
+  }
+  return `<p><strong>Host notes:</strong><br>${escapeHtml(notes).replace(/\r?\n/g, "<br>")}</p>`;
+}
+
 export async function maybeSendTrafficAlert(host: HostWithUser): Promise<void> {
   if (host.trafficAllowanceBytes <= 0n) {
     return;
@@ -52,6 +60,7 @@ export async function maybeSendTrafficAlert(host: HostWithUser): Promise<void> {
       <li>Metering: ${escapeHtml(host.meteringType)}</li>
       <li>Cycle: ${escapeHtml(host.currentCycleId || "not initialized")}</li>
     </ul>
+    ${hostNotesHtml(host)}
     <p>Alerts for this host are throttled to at most one email every 3 hours.</p>
   `;
 
@@ -120,6 +129,7 @@ export async function maybeSendMissingHostAlert(host: HostWithUser, now = new Da
       <li>Machine ID: ${escapeHtml(host.machineId || "unknown")}</li>
       <li>Poll interval: ${host.pollIntervalSeconds} seconds</li>
     </ul>
+    ${hostNotesHtml(host)}
     <p>This alert is separate from traffic allowance alerts and is throttled to at most one email every 3 hours per host.</p>
   `;
 

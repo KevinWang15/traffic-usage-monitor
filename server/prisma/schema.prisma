@@ -49,6 +49,7 @@ model Host {
   userId                     String
   user                       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   name                       String?
+  notes                      String?               @db.Text
   hostname                   String
   machineId                  String?
   lastBootId                 String?

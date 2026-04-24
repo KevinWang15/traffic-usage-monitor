@@ -877,6 +877,7 @@ function Inspector({
 }) {
   const [tab, setTab] = useState("overview");
   const [name, setName] = useState("");
+  const [notes, setNotes] = useState("");
   const [allowanceGiB, setAllowanceGiB] = useState("0");
   const [meteringType, setMeteringType] = useState<HostDto["meteringType"]>("EGRESS_ONLY");
   const [resetPeriod, setResetPeriod] = useState<HostDto["resetPeriod"]>("MONTHLY");
@@ -902,6 +903,7 @@ function Inspector({
     }
     const host = node.host;
     setName(host.name || "");
+    setNotes(host.notes || "");
     setAllowanceGiB(bytesToGiB(host.trafficAllowanceBytes));
     setMeteringType(host.meteringType);
     setResetPeriod(host.resetPeriod);
@@ -932,6 +934,7 @@ function Inspector({
     try {
       const response = await api.updateHost(node!.id, {
         name,
+        notes,
         trafficAllowanceBytes: gibToBytes(allowanceGiB),
         meteringType,
         resetPeriod,
@@ -1032,6 +1035,7 @@ function Inspector({
               <div className="field-grid">
                 <label className="field">Display name<input value={name} onChange={(event) => setName(event.target.value)} /></label>
                 <div className="field"><span>Hostname</span><strong className="mono">{node.hostname}</strong></div>
+                <label className="field field-full">Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} placeholder="Optional" /></label>
               </div>
               <div className="section-h">Quota</div>
               <div className="field-grid">
@@ -1230,7 +1234,7 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
       if (!query) {
         return true;
       }
-      return `${node.title} ${node.hostname} ${node.id} ${node.host.machineId || ""} ${node.provider} ${node.region} ${node.tags.join(" ")}`
+      return `${node.title} ${node.hostname} ${node.host.notes || ""} ${node.id} ${node.host.machineId || ""} ${node.provider} ${node.region} ${node.tags.join(" ")}`
         .toLowerCase()
         .includes(query);
     });
