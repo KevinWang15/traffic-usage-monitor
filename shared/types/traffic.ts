@@ -45,6 +45,11 @@ export type TrafficSampleDto = {
   createdAt: string;
 };
 
+export type HostSamplesDto = {
+  samples: TrafficSampleDto[];
+  throughputSeries: number[];
+};
+
 export type UserDto = {
   id: string;
   email: string;

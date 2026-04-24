@@ -1,4 +1,4 @@
-import { HostStatus, MeteringType, Prisma, ResetPeriod, type Host, type User } from "@prisma/client";
+import { HostStatus, MeteringType, Prisma, ResetPeriod, type Host, type TrafficSample, type User } from "@prisma/client";
 import { Router } from "express";
 import prisma from "../prisma";
 import { parseBytes, percentBasisPointsToPercent, percentToBasisPoints, remainingPercent } from "../lib/bytes";
@@ -19,6 +19,27 @@ const EMPTY_SAMPLE_METRICS: HostSampleMetrics = {
   recentRateMbps: 0,
   trafficSpark: [],
 };
+
+function buildThroughputSeries(
+  samples: Array<Pick<TrafficSample, "observedAt" | "meteredBytes">>,
+  since: Date,
+  until: Date,
+  bucketCount: number,
+): number[] {
+  const bucketMs = (until.getTime() - since.getTime()) / bucketCount;
+  const bucketSeconds = bucketMs / 1000;
+  const buckets = Array(bucketCount).fill(0) as number[];
+
+  for (const sample of samples) {
+    const bucketIndex = Math.min(
+      bucketCount - 1,
+      Math.max(0, Math.floor((sample.observedAt.getTime() - since.getTime()) / bucketMs)),
+    );
+    buckets[bucketIndex] += Number(sample.meteredBytes);
+  }
+
+  return buckets.map((bytes) => (bytes * 8) / bucketSeconds / 1_000_000);
+}
 
 function hostDto(host: Host, user: User, sampleMetrics: HostSampleMetrics = EMPTY_SAMPLE_METRICS) {
   const threshold = host.alertThresholdBasisPts ?? user.defaultAlertThresholdBasisPts;
@@ -261,12 +282,29 @@ router.get(
   "/:id/samples",
   asyncHandler(async (req, res) => {
     const host = await requireOwnedHost(req.user!.id, requireRouteParam(req.params.id, "id"));
-    const samples = await prisma.trafficSample.findMany({
-      where: { hostId: host.id },
-      orderBy: { observedAt: "desc" },
-      take: 200,
-    });
-    sendJson(res, { samples });
+    const now = new Date();
+    const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const bucketCount = 96;
+    const [samples, chartSamples] = await Promise.all([
+      prisma.trafficSample.findMany({
+        where: { hostId: host.id },
+        orderBy: { observedAt: "desc" },
+        take: 200,
+      }),
+      prisma.trafficSample.findMany({
+        where: {
+          hostId: host.id,
+          observedAt: { gte: since },
+        },
+        select: {
+          observedAt: true,
+          meteredBytes: true,
+        },
+        orderBy: { observedAt: "asc" },
+      }),
+    ]);
+
+    sendJson(res, { samples, throughputSeries: buildThroughputSeries(chartSamples, since, now, bucketCount) });
   }),
 );
 

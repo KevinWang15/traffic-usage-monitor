@@ -191,6 +191,19 @@ function formatRate(mbps: number): string {
   return `${(mbps * 1000).toFixed(0)} Kbps`;
 }
 
+function formatRateAxis(mbps: number): string {
+  if (!Number.isFinite(mbps) || mbps <= 0) {
+    return "0 K";
+  }
+  if (mbps >= 1000) {
+    return `${(mbps / 1000).toFixed(2)} G`;
+  }
+  if (mbps >= 1) {
+    return `${mbps.toFixed(0)} M`;
+  }
+  return `${(mbps * 1000).toFixed(0)} K`;
+}
+
 function relTime(value: string | null): string {
   if (!value) {
     return "never";
@@ -232,6 +245,14 @@ function Sparkline({ data, tone = "ok", width = 72, height = 18 }: { data: numbe
   );
 }
 
+function bucketedBytesToMbps(data: number[], windowHours = 24): number[] {
+  if (data.length === 0) {
+    return [];
+  }
+  const bucketSeconds = (windowHours * 60 * 60) / data.length;
+  return data.map((bytes) => (bytes * 8) / bucketSeconds / 1_000_000);
+}
+
 function TimeSeries({ data, tone = "ok" }: { data: number[]; tone?: string }) {
   const series = data.length ? data : [0];
   const width = 520;
@@ -253,7 +274,7 @@ function TimeSeries({ data, tone = "ok" }: { data: number[]; tone?: string }) {
       <path className="line" d={line} />
       {[0, 0.5, 1].map((tick) => (
         <text key={tick} x={pad.left - 6} y={pad.top + plotHeight * tick + 3} textAnchor="end">
-          {formatRate(max * (1 - tick))}
+          {formatRateAxis(max * (1 - tick))}
         </text>
       ))}
       {[0, 0.5, 1].map((tick) => (
@@ -866,6 +887,7 @@ function Inspector({
   node,
   userDefaultThreshold,
   samples,
+  throughputSeries,
   onChanged,
   onToast,
   onClose,
@@ -873,6 +895,7 @@ function Inspector({
   node: NodeView | null;
   userDefaultThreshold: number;
   samples: TrafficSampleDto[];
+  throughputSeries: number[];
   onChanged: (host: HostDto) => void;
   onToast: (notice: NonNullable<Notice>) => void;
   onClose: () => void;
@@ -973,13 +996,7 @@ function Inspector({
   }
 
   const tone = statusTone(node.status);
-  const series = samples.length
-    ? samples
-        .slice()
-        .sort((left, right) => new Date(left.observedAt).getTime() - new Date(right.observedAt).getTime())
-        .slice(-96)
-        .map((sample) => (asNumberBytes(sample.meteredBytes) * 8) / Math.max(10, node.host.pollIntervalSeconds) / 1_000_000)
-    : node.spark.map((value) => value * Math.max(node.recentRateMbps, 1));
+  const series = throughputSeries.length ? throughputSeries : bucketedBytesToMbps(node.spark);
   const historyRows = samples.slice(0, 8);
 
   return (
@@ -1129,6 +1146,7 @@ function getSortValue(node: NodeView, key: SortKey): string | number {
 function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserChanged: (user: UserDto) => void; onLogout: () => void }) {
   const [hosts, setHosts] = useState<HostDto[]>([]);
   const [samples, setSamples] = useState<TrafficSampleDto[]>([]);
+  const [throughputSeries, setThroughputSeries] = useState<number[]>([]);
   const [notice, setNotice] = useState<Notice>(null);
   const [toast, setToast] = useState<Notice>(null);
   const [loading, setLoading] = useState(true);
@@ -1209,11 +1227,32 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
   }, []);
 
   useEffect(() => {
+    let ignore = false;
     if (!selectedId) {
       setSamples([]);
-      return;
+      setThroughputSeries([]);
+      return () => {
+        ignore = true;
+      };
     }
-    api.hostSamples(selectedId).then((response) => setSamples(response.samples)).catch(() => setSamples([]));
+    api.hostSamples(selectedId)
+      .then((response) => {
+        if (ignore) {
+          return;
+        }
+        setSamples(response.samples);
+        setThroughputSeries(response.throughputSeries || []);
+      })
+      .catch(() => {
+        if (ignore) {
+          return;
+        }
+        setSamples([]);
+        setThroughputSeries([]);
+      });
+    return () => {
+      ignore = true;
+    };
   }, [selectedId]);
 
   function replaceHost(nextHost: HostDto) {
@@ -1342,6 +1381,7 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
         node={selectedNode}
         userDefaultThreshold={user.defaultAlertThresholdPercent}
         samples={samples}
+        throughputSeries={throughputSeries}
         onChanged={replaceHost}
         onToast={setToast}
         onClose={() => setSelectedId(null)}
