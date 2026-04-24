@@ -40,6 +40,15 @@ MYSQL_IMAGE="${DEPLOYMENT_MYSQL_IMAGE:-mysql:8.4}"
 MYSQL_PORT="${DEPLOYMENT_MYSQL_PORT:-3306}"
 MYSQL_STORAGE_SIZE="${DEPLOYMENT_MYSQL_STORAGE_SIZE:-10Gi}"
 MYSQL_STORAGE_CLASS="${DEPLOYMENT_MYSQL_STORAGE_CLASS:-}"
+CREATE_PROMETHEUS="${DEPLOYMENT_CREATE_PROMETHEUS:-true}"
+PROMETHEUS_NAME="${DEPLOYMENT_PROMETHEUS_NAME:-traffic-usage-monitor-prometheus}"
+PROMETHEUS_SERVICE_NAME="${DEPLOYMENT_PROMETHEUS_SERVICE_NAME:-traffic-usage-monitor-prometheus}"
+PROMETHEUS_IMAGE="${DEPLOYMENT_PROMETHEUS_IMAGE:-prom/prometheus:v2.55.1}"
+PROMETHEUS_PORT="${DEPLOYMENT_PROMETHEUS_PORT:-9090}"
+PROMETHEUS_NODE_PORT="${DEPLOYMENT_PROMETHEUS_NODE_PORT:-30090}"
+PROMETHEUS_STORAGE_SIZE="${DEPLOYMENT_PROMETHEUS_STORAGE_SIZE:-5Gi}"
+PROMETHEUS_STORAGE_CLASS="${DEPLOYMENT_PROMETHEUS_STORAGE_CLASS:-}"
+PROMETHEUS_RETENTION="${DEPLOYMENT_PROMETHEUS_RETENTION:-15d}"
 
 MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-}"
 MYSQL_DATABASE="${MYSQL_DATABASE:-traffic_usage_monitor}"
@@ -326,6 +335,143 @@ ${storage_class_block}
 EOF2
 }
 
+render_prometheus() {
+  local storage_class_block=""
+
+  if [[ "$CREATE_PROMETHEUS" != "true" ]]; then
+    return
+  fi
+
+  if [[ -n "$PROMETHEUS_STORAGE_CLASS" ]]; then
+    storage_class_block=$(cat <<EOF2
+      storageClassName: ${PROMETHEUS_STORAGE_CLASS}
+EOF2
+)
+  fi
+
+  cat <<EOF2
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${PROMETHEUS_NAME}-config
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${PROMETHEUS_NAME}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        app: ${APP_NAME}
+        namespace: ${NAMESPACE}
+    scrape_configs:
+      - job_name: traffic-usage-monitor
+        metrics_path: /api/metrics
+        static_configs:
+          - targets:
+              - ${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local:80
+      - job_name: prometheus
+        static_configs:
+          - targets:
+              - 127.0.0.1:${PROMETHEUS_PORT}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${PROMETHEUS_NAME}-data
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${PROMETHEUS_NAME}
+spec:
+  accessModes:
+    - ReadWriteOnce
+${storage_class_block}
+  resources:
+    requests:
+      storage: ${PROMETHEUS_STORAGE_SIZE}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${PROMETHEUS_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${PROMETHEUS_NAME}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${PROMETHEUS_NAME}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${PROMETHEUS_NAME}
+    spec:
+      securityContext:
+        fsGroup: 65534
+      containers:
+        - name: prometheus
+          image: ${PROMETHEUS_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION}
+            - --web.enable-lifecycle
+          ports:
+            - name: http
+              containerPort: ${PROMETHEUS_PORT}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: data
+              mountPath: /prometheus
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: ${PROMETHEUS_PORT}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: ${PROMETHEUS_PORT}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: config
+          configMap:
+            name: ${PROMETHEUS_NAME}-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: ${PROMETHEUS_NAME}-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${PROMETHEUS_SERVICE_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${PROMETHEUS_NAME}
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: ${PROMETHEUS_NAME}
+  ports:
+    - name: http
+      port: ${PROMETHEUS_PORT}
+      targetPort: ${PROMETHEUS_PORT}
+      nodePort: ${PROMETHEUS_NODE_PORT}
+      protocol: TCP
+EOF2
+}
+
 render_deployment() {
   local image_pull_secret_block=""
   local init_container_block=""
@@ -424,10 +570,19 @@ deploy() {
 
   render_deployment | kubectl apply -f -
   render_service | kubectl apply -f -
+  if [[ "$CREATE_PROMETHEUS" == "true" ]]; then
+    render_prometheus | kubectl apply -f -
+  fi
 
   kubectl rollout status deployment/"$APP_NAME" -n "$NAMESPACE" --timeout=300s
+  if [[ "$CREATE_PROMETHEUS" == "true" ]]; then
+    kubectl rollout status deployment/"$PROMETHEUS_NAME" -n "$NAMESPACE" --timeout=300s
+  fi
   kubectl get pods,svc -n "$NAMESPACE"
   echo "Application should be available on NodePort ${NODE_PORT}"
+  if [[ "$CREATE_PROMETHEUS" == "true" ]]; then
+    echo "Prometheus should be available on NodePort ${PROMETHEUS_NODE_PORT}"
+  fi
 }
 
 status() {
@@ -451,6 +606,12 @@ delete_resources() {
   kubectl delete service "$SERVICE_NAME" -n "$NAMESPACE" --ignore-not-found
   kubectl delete deployment "$APP_NAME" -n "$NAMESPACE" --ignore-not-found
   kubectl delete secret "$SECRET_NAME" -n "$NAMESPACE" --ignore-not-found
+  if [[ "$CREATE_PROMETHEUS" == "true" ]]; then
+    kubectl delete service "$PROMETHEUS_SERVICE_NAME" -n "$NAMESPACE" --ignore-not-found
+    kubectl delete deployment "$PROMETHEUS_NAME" -n "$NAMESPACE" --ignore-not-found
+    kubectl delete configmap "$PROMETHEUS_NAME-config" -n "$NAMESPACE" --ignore-not-found
+    echo "Prometheus PVC is retained. Delete ${PROMETHEUS_NAME}-data manually if you also want to remove metrics data."
+  fi
   if [[ "$CREATE_MYSQL" == "true" ]]; then
     kubectl delete service "$MYSQL_SERVICE_NAME" -n "$NAMESPACE" --ignore-not-found
     kubectl delete statefulset "$MYSQL_NAME" -n "$NAMESPACE" --ignore-not-found
@@ -472,6 +633,10 @@ render() {
   render_deployment
   echo "---"
   render_service
+  if [[ "$CREATE_PROMETHEUS" == "true" ]]; then
+    echo "---"
+    render_prometheus
+  fi
 }
 
 case "$ACTION" in

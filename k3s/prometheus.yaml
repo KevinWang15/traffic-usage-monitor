@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traffic-usage-monitor-prometheus-config
+  namespace: traffic-usage-monitor
+  labels:
+    app.kubernetes.io/name: traffic-usage-monitor-prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        app: traffic-usage-monitor
+        namespace: traffic-usage-monitor
+    scrape_configs:
+      - job_name: traffic-usage-monitor
+        metrics_path: /api/metrics
+        static_configs:
+          - targets:
+              - traffic-usage-monitor-service.traffic-usage-monitor.svc.cluster.local:80
+      - job_name: prometheus
+        static_configs:
+          - targets:
+              - 127.0.0.1:9090
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: traffic-usage-monitor-prometheus-data
+  namespace: traffic-usage-monitor
+  labels:
+    app.kubernetes.io/name: traffic-usage-monitor-prometheus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-usage-monitor-prometheus
+  namespace: traffic-usage-monitor
+  labels:
+    app.kubernetes.io/name: traffic-usage-monitor-prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traffic-usage-monitor-prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: traffic-usage-monitor-prometheus
+    spec:
+      securityContext:
+        fsGroup: 65534
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.55.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=15d
+            - --web.enable-lifecycle
+          ports:
+            - name: http
+              containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: data
+              mountPath: /prometheus
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: config
+          configMap:
+            name: traffic-usage-monitor-prometheus-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: traffic-usage-monitor-prometheus-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traffic-usage-monitor-prometheus
+  namespace: traffic-usage-monitor
+  labels:
+    app.kubernetes.io/name: traffic-usage-monitor-prometheus
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: traffic-usage-monitor-prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      nodePort: 30090
+      protocol: TCP
