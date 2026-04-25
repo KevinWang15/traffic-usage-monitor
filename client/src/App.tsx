@@ -313,7 +313,6 @@ function UsageBar({ node }: { node: NodeView }) {
       <div className="usage-bar">
         <div className={`fill ${tone}`} style={{ width: `${Math.min(100, node.usedPercent).toFixed(1)}%` }} />
       </div>
-      <span className="pct">{node.usedPercent.toFixed(node.usedPercent >= 10 ? 0 : 1)}%</span>
     </div>
   );
 }
