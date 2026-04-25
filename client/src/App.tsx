@@ -919,6 +919,7 @@ function Inspector({
   const [alertThreshold, setAlertThreshold] = useState("");
   const [pollInterval, setPollInterval] = useState("60");
   const [remainingGiB, setRemainingGiB] = useState("0");
+  const [remainingBaselineGiB, setRemainingBaselineGiB] = useState("0");
   const [correctionReason, setCorrectionReason] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
   const [saving, setSaving] = useState(false);
@@ -944,10 +945,12 @@ function Inspector({
     setResetMinuteUtc(String(host.resetMinuteUtc));
     setAlertThreshold(host.alertThresholdOverridePercent === null ? "" : String(host.alertThresholdOverridePercent));
     setPollInterval(String(host.pollIntervalSeconds));
-    setRemainingGiB(bytesToGiB(host.remainingBytes));
+    const hostRemainingGiB = bytesToGiB(host.remainingBytes);
+    setRemainingGiB(hostRemainingGiB);
+    setRemainingBaselineGiB(hostRemainingGiB);
     setCorrectionReason("");
     setNotice(null);
-  }, [node]);
+  }, [node?.id]);
 
   if (!node) {
     return (
@@ -976,7 +979,15 @@ function Inspector({
         alertThresholdPercent: alertThreshold === "" ? null : Number(alertThreshold),
         pollIntervalSeconds: Number(pollInterval),
       });
-      onChanged(response.host);
+      let finalHost = response.host;
+      if (remainingGiB.trim() !== remainingBaselineGiB) {
+        finalHost = (await api.correctRemaining(node!.id, gibToBytes(remainingGiB), correctionReason)).host;
+      }
+      onChanged(finalHost);
+      const savedRemainingGiB = bytesToGiB(finalHost.remainingBytes);
+      setRemainingGiB(savedRemainingGiB);
+      setRemainingBaselineGiB(savedRemainingGiB);
+      setCorrectionReason("");
       setNotice({ type: "ok", message: "Host configuration saved." });
       onToast({ type: "ok", message: "Host configuration saved." });
     } catch (error) {
@@ -992,6 +1003,7 @@ function Inspector({
     try {
       const response = await api.correctRemaining(node!.id, gibToBytes(remainingGiB), correctionReason);
       onChanged(response.host);
+      setRemainingBaselineGiB(bytesToGiB(response.host.remainingBytes));
       setNotice({ type: "ok", message: "Remaining traffic corrected." });
     } catch (error) {
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to correct remaining traffic" });
@@ -1079,9 +1091,15 @@ function Inspector({
               <div className="section-h">Reset schedule</div>
               <div className="field-grid">
                 <label className="field">Period<select value={resetPeriod} onChange={(event) => setResetPeriod(event.target.value as HostDto["resetPeriod"])}><option value="DAILY">Daily</option><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option><option value="YEARLY">Yearly</option></select></label>
-                <label className="field">Day of month<input value={resetDayOfMonth} onChange={(event) => setResetDayOfMonth(event.target.value)} type="number" min="1" max="31" /></label>
-                <label className="field">Day of week<select value={resetDayOfWeek} onChange={(event) => setResetDayOfWeek(event.target.value)}>{weekDayLabels.map((label, index) => <option key={label} value={index}>{label}</option>)}</select></label>
-                <label className="field">Month<input value={resetMonth} onChange={(event) => setResetMonth(event.target.value)} type="number" min="1" max="12" /></label>
+                {resetPeriod === "WEEKLY" ? (
+                  <label className="field">Day of week<select value={resetDayOfWeek} onChange={(event) => setResetDayOfWeek(event.target.value)}>{weekDayLabels.map((label, index) => <option key={label} value={index}>{label}</option>)}</select></label>
+                ) : null}
+                {resetPeriod === "MONTHLY" || resetPeriod === "YEARLY" ? (
+                  <label className="field">Day of month<input value={resetDayOfMonth} onChange={(event) => setResetDayOfMonth(event.target.value)} type="number" min="1" max="31" /></label>
+                ) : null}
+                {resetPeriod === "YEARLY" ? (
+                  <label className="field">Month<input value={resetMonth} onChange={(event) => setResetMonth(event.target.value)} type="number" min="1" max="12" /></label>
+                ) : null}
                 <label className="field">Hour UTC<input value={resetHourUtc} onChange={(event) => setResetHourUtc(event.target.value)} type="number" min="0" max="23" /></label>
                 <label className="field">Minute UTC<input value={resetMinuteUtc} onChange={(event) => setResetMinuteUtc(event.target.value)} type="number" min="0" max="59" /></label>
               </div>

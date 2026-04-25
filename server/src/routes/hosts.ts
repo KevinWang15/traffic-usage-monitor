@@ -188,7 +188,9 @@ router.patch(
     if (req.body.trafficAllowanceBytes !== undefined) {
       const newAllowance = parseBytes(req.body.trafficAllowanceBytes, "trafficAllowanceBytes");
       data.trafficAllowanceBytes = newAllowance;
-      data.remainingBytes = newAllowance > current.usedBytes ? newAllowance - current.usedBytes : 0n;
+      if (newAllowance !== current.trafficAllowanceBytes) {
+        data.remainingBytes = newAllowance > current.usedBytes ? newAllowance - current.usedBytes : 0n;
+      }
     }
     if (req.body.meteringType !== undefined) {
       if (!Object.values(MeteringType).includes(req.body.meteringType)) {
