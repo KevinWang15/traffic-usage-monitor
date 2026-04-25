@@ -479,9 +479,16 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
     }
   }
 
-  function copyCommand() {
-    if (joinCommand?.command) {
-      void navigator.clipboard?.writeText(joinCommand.command);
+  async function copyCommand() {
+    if (!joinCommand?.command) {
+      return;
+    }
+    setNotice(null);
+    try {
+      await navigator.clipboard.writeText(joinCommand.command);
+      setNotice({ type: "ok", message: "Install command copied." });
+    } catch {
+      setNotice({ type: "error", message: "Failed to copy install command." });
     }
   }
 
@@ -992,7 +999,6 @@ function Inspector({
       setRemainingGiB(savedRemainingGiB);
       setRemainingBaselineGiB(savedRemainingGiB);
       setCorrectionReason("");
-      setNotice({ type: "ok", message: "Host configuration saved." });
       onToast({ type: "ok", message: "Host configuration saved." });
     } catch (error) {
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to save host" });
