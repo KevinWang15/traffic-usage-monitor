@@ -124,6 +124,10 @@ function labelStatus(status: FleetStatus): string {
   return status.toUpperCase();
 }
 
+function labelGroupBy(value: GroupBy): string {
+  return value === "region" ? "Country" : value[0].toUpperCase() + value.slice(1);
+}
+
 function detectProvider(host: HostDto): string {
   const source = `${host.name || ""} ${host.hostname}`.toLowerCase();
   const known = [
@@ -143,10 +147,8 @@ function detectProvider(host: HostDto): string {
   return known.find((provider) => source.includes(provider.toLowerCase())) || "Unassigned";
 }
 
-function detectRegion(host: HostDto): string {
-  const source = `${host.name || ""} ${host.hostname}`.toLowerCase();
-  const known = ["us-east", "us-west", "eu-fra", "eu-ams", "ap-sg", "ap-tok", "ap-hkg", "sa-gru"];
-  return known.find((region) => source.includes(region)) || "default";
+function hostCountryCode(host: HostDto): string {
+  return host.countryCode || "--";
 }
 
 function hashString(value: string): number {
@@ -170,7 +172,7 @@ function fallbackSpark(seed: string, used: number | null): number[] {
 function toNodeView(host: HostDto): NodeView {
   const used = percentUsed(host);
   const provider = detectProvider(host);
-  const region = detectRegion(host);
+  const region = hostCountryCode(host);
   const status = deriveStatus(host);
   return {
     host,
@@ -601,7 +603,7 @@ function Sidebar({
       <div className="nav-group">
         <div className="nav-label">Groups</div>
         <button className="nav-item" onClick={() => setActive("group-provider")}>By provider</button>
-        <button className="nav-item" onClick={() => setActive("group-region")}>By region</button>
+        <button className="nav-item" onClick={() => setActive("group-region")}>By country</button>
         <button className="nav-item" onClick={() => setActive("group-tag")}>By tag</button>
       </div>
       <div className="sidebar-footer">
@@ -733,7 +735,7 @@ function Toolbar({
       <div className="seg">
         {(["none", "provider", "region", "tag", "status"] as GroupBy[]).map((value) => (
           <button key={value} className={groupBy === value ? "on" : ""} onClick={() => setGroupBy(value)}>
-            {value[0].toUpperCase() + value.slice(1)}
+            {labelGroupBy(value)}
           </button>
         ))}
       </div>
@@ -778,7 +780,7 @@ function HostTable({
     { key: "status", label: "Status" },
     { key: "hostname", label: "Host" },
     { key: "publicIp", label: "Public IP" },
-    { key: "region", label: "Region" },
+    { key: "region", label: "Country" },
     { key: "tags", label: "Tags", sortable: false },
     { key: "usedBytes", label: "Used", align: "right" },
     { key: "remainingBytes", label: "Remaining", align: "right" },

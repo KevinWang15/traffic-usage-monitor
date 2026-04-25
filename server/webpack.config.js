@@ -27,6 +27,7 @@ module.exports = {
   externals: {
     "@prisma/client": "commonjs @prisma/client",
     axios: "commonjs axios",
+    "geoip-lite": "commonjs geoip-lite",
     mysql2: "commonjs mysql2",
   },
   node: {

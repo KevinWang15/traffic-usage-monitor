@@ -3,6 +3,7 @@ import { Router, type Request } from "express";
 import prisma from "../prisma";
 import { readAgentAsset } from "../agentAssets";
 import { env } from "../config";
+import { lookupCountryCode } from "../lib/geoip";
 import { asyncHandler, HttpError, sendJson } from "../lib/http";
 import { observedRequestIp } from "../lib/requestIp";
 import { hashSecret, randomToken, readBearerToken } from "../lib/security";
@@ -58,6 +59,7 @@ router.post(
     const machineId = stringOrNull(req.body.machineId) || `${hostname}:${randomToken(8)}`;
     const bootId = stringOrNull(req.body.bootId);
     const publicIp = observedRequestIp(req);
+    const countryCode = lookupCountryCode(publicIp);
     logAgentIpDebug(req, "join", publicIp);
     const agentKey = randomToken(32);
     const now = new Date();
@@ -80,6 +82,7 @@ router.post(
         hostname,
         machineId,
         publicIp,
+        countryCode,
         lastBootId: bootId,
         agentKeyHash: hashSecret(agentKey),
         currentCycleId: cycle.id,
@@ -91,6 +94,7 @@ router.post(
         name: name ?? undefined,
         hostname,
         publicIp,
+        countryCode,
         lastBootId: bootId,
         agentKeyHash: hashSecret(agentKey),
         status: "ACTIVE",

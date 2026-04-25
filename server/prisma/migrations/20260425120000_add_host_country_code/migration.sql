@@ -1,0 +1,1 @@
+ALTER TABLE `Host` ADD COLUMN `countryCode` VARCHAR(2) NULL;

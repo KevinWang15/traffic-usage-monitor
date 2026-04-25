@@ -1,6 +1,7 @@
 import type { HostInterfaceState } from "@prisma/client";
 import prisma from "../prisma";
 import { parseBytes } from "../lib/bytes";
+import { lookupCountryCode } from "../lib/geoip";
 import { HttpError } from "../lib/http";
 import { maybeSendTrafficAlert } from "./alerts";
 import { ensureResetForHost } from "./resetScheduler";
@@ -147,13 +148,19 @@ export async function processAgentReport(hostId: string, payload: AgentReportPay
       throw new Error(`Host ${hostId} disappeared while processing traffic report`);
     }
     const nextRemaining = current.remainingBytes > totalMeteredBytes ? current.remainingBytes - totalMeteredBytes : 0n;
+    const publicIp = context.publicIp ?? current.publicIp;
+    const countryCode =
+      context.publicIp && (context.publicIp !== current.publicIp || !current.countryCode)
+        ? lookupCountryCode(context.publicIp)
+        : current.countryCode;
 
     await tx.host.update({
       where: { id: hostId },
       data: {
         hostname,
         machineId,
-        publicIp: context.publicIp ?? current.publicIp,
+        publicIp,
+        countryCode,
         lastBootId: bootId || current.lastBootId,
         usedBytes: { increment: totalMeteredBytes },
         remainingBytes: nextRemaining,

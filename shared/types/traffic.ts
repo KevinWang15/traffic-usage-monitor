@@ -9,6 +9,7 @@ export type HostDto = {
   hostname: string;
   machineId: string | null;
   publicIp: string | null;
+  countryCode: string | null;
   status: HostStatus;
   trafficAllowanceBytes: string;
   remainingBytes: string;
