@@ -51,6 +51,22 @@ describe("remainingAfterHostUpdate", () => {
     );
   });
 
+  it("preserves the explicitly submitted remaining bytes even when it equals the old remaining value", () => {
+    const current = {
+      trafficAllowanceBytes: 1_000n,
+      usedBytes: 300n,
+      remainingBytes: 700n,
+    };
+
+    assert.equal(
+      remainingAfterHostUpdate(current, {
+        trafficAllowanceBytes: 1_500n,
+        remainingBytes: 700n,
+      }),
+      700n,
+    );
+  });
+
   it("returns undefined when neither allowance nor remaining is updated", () => {
     const current = {
       trafficAllowanceBytes: 1_000n,
