@@ -773,7 +773,7 @@ function HostTable({
   bulk: Set<string>;
   setBulk: (next: Set<string>) => void;
 }) {
-  const columns: Array<{ key: SortKey | "sel" | "tags" | "spark"; label: string; sortable?: boolean; align?: "right" }> = [
+  const columns: Array<{ key: SortKey | "sel" | "tags"; label: string; sortable?: boolean; align?: "right" }> = [
     { key: "sel", label: "", sortable: false },
     { key: "status", label: "Status" },
     { key: "hostname", label: "Host" },
