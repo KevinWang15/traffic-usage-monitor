@@ -31,8 +31,8 @@ type SortKey =
   | "remainingBytes"
   | "trafficAllowanceBytes"
   | "usedPercent"
+  | "last24hBytes"
   | "recentRateMbps"
-  | "cycle"
   | "lastSeenSort";
 
 type NodeView = {
@@ -50,6 +50,7 @@ type NodeView = {
   trafficAllowanceBytes: number;
   usedPercent: number | null;
   remainingPercent: number | null;
+  last24hBytes: number;
   recentRateMbps: number;
   spark: number[];
   cycle: string;
@@ -188,6 +189,7 @@ function toNodeView(host: HostDto): NodeView {
     trafficAllowanceBytes: asNumberBytes(host.trafficAllowanceBytes),
     usedPercent: used,
     remainingPercent: host.remainingPercent,
+    last24hBytes: (host.trafficSpark || []).reduce((sum, bytes) => sum + bytes, 0),
     recentRateMbps: host.recentRateMbps || 0,
     spark: host.trafficSpark?.length ? host.trafficSpark : fallbackSpark(host.id, used),
     cycle: host.resetPeriod.toLowerCase(),
@@ -782,14 +784,13 @@ function HostTable({
     { key: "remainingBytes", label: "Remaining", align: "right" },
     { key: "trafficAllowanceBytes", label: "Allowance", align: "right" },
     { key: "usedPercent", label: "Usage" },
-    ...(showSpark ? [{ key: "spark" as const, label: "24h", sortable: false }] : []),
+    ...(showSpark ? [{ key: "last24hBytes" as const, label: "24h" }] : []),
     { key: "recentRateMbps", label: "Rate", align: "right" },
-    { key: "cycle", label: "Cycle" },
     { key: "lastSeenSort", label: "Seen" },
   ];
 
-  function clickSort(key: SortKey | "sel" | "tags" | "spark", sortable?: boolean) {
-    if (sortable === false || key === "sel" || key === "tags" || key === "spark") {
+  function clickSort(key: SortKey | "sel" | "tags", sortable?: boolean) {
+    if (sortable === false || key === "sel" || key === "tags") {
       return;
     }
     setSort(sort.key === key ? { key, dir: sort.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" });
@@ -911,7 +912,6 @@ function MemoGroupRows({
             <td><UsageBar node={node} /></td>
             {showSpark ? <td><Sparkline data={node.spark} tone={tone} /></td> : null}
             <td className="num right subtle">{formatRate(node.recentRateMbps)}</td>
-            <td className="mono subtle">{node.cycle}</td>
             <td className={`mono ${node.status === "missing" ? "crit-text" : "subtle"}`}>{relTime(node.host.lastSeenAt || node.host.lastReportAt)}</td>
           </tr>
         );
