@@ -965,7 +965,7 @@ function Inspector({
     setSaving(true);
     setNotice(null);
     try {
-      const response = await api.updateHost(node!.id, {
+      const payload: Record<string, unknown> = {
         name,
         notes,
         trafficAllowanceBytes: gibToBytes(allowanceGiB),
@@ -978,13 +978,17 @@ function Inspector({
         resetMinuteUtc: Number(resetMinuteUtc),
         alertThresholdPercent: alertThreshold === "" ? null : Number(alertThreshold),
         pollIntervalSeconds: Number(pollInterval),
-      });
-      let finalHost = response.host;
+      };
       if (remainingGiB.trim() !== remainingBaselineGiB) {
-        finalHost = (await api.correctRemaining(node!.id, gibToBytes(remainingGiB), correctionReason)).host;
+        payload.remainingBytes = gibToBytes(remainingGiB);
+        payload.remainingCorrectionReason = correctionReason;
       }
-      onChanged(finalHost);
-      const savedRemainingGiB = bytesToGiB(finalHost.remainingBytes);
+
+      const response = await api.updateHost(node!.id, {
+        ...payload,
+      });
+      onChanged(response.host);
+      const savedRemainingGiB = bytesToGiB(response.host.remainingBytes);
       setRemainingGiB(savedRemainingGiB);
       setRemainingBaselineGiB(savedRemainingGiB);
       setCorrectionReason("");

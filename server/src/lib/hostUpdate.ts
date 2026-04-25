@@ -10,3 +10,16 @@ export function remainingAfterAllowanceUpdate(current: AllowanceState, nextAllow
   }
   return nextAllowance > current.usedBytes ? nextAllowance - current.usedBytes : 0n;
 }
+
+export function remainingAfterHostUpdate(
+  current: AllowanceState,
+  update: { trafficAllowanceBytes?: bigint; remainingBytes?: bigint },
+): bigint | undefined {
+  if (update.remainingBytes !== undefined) {
+    return update.remainingBytes;
+  }
+  if (update.trafficAllowanceBytes !== undefined) {
+    return remainingAfterAllowanceUpdate(current, update.trafficAllowanceBytes);
+  }
+  return undefined;
+}

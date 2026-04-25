@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { remainingAfterAllowanceUpdate } from "../src/lib/hostUpdate";
+import { remainingAfterAllowanceUpdate, remainingAfterHostUpdate } from "../src/lib/hostUpdate";
 
 describe("remainingAfterAllowanceUpdate", () => {
   it("preserves manually corrected remaining bytes when allowance is unchanged", () => {
@@ -31,5 +31,33 @@ describe("remainingAfterAllowanceUpdate", () => {
     };
 
     assert.equal(remainingAfterAllowanceUpdate(current, 1_100n), 0n);
+  });
+});
+
+describe("remainingAfterHostUpdate", () => {
+  it("lets explicit remaining bytes win when allowance changes in the same update", () => {
+    const current = {
+      trafficAllowanceBytes: 1_000n,
+      usedBytes: 300n,
+      remainingBytes: 700n,
+    };
+
+    assert.equal(
+      remainingAfterHostUpdate(current, {
+        trafficAllowanceBytes: 1_500n,
+        remainingBytes: 2_000n,
+      }),
+      2_000n,
+    );
+  });
+
+  it("returns undefined when neither allowance nor remaining is updated", () => {
+    const current = {
+      trafficAllowanceBytes: 1_000n,
+      usedBytes: 300n,
+      remainingBytes: 700n,
+    };
+
+    assert.equal(remainingAfterHostUpdate(current, {}), undefined);
   });
 });

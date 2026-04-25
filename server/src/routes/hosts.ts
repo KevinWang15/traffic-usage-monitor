@@ -3,7 +3,7 @@ import { Router } from "express";
 import prisma from "../prisma";
 import { parseBytes, percentBasisPointsToPercent, percentToBasisPoints, remainingPercent } from "../lib/bytes";
 import { validateResetConfig } from "../lib/cycles";
-import { remainingAfterAllowanceUpdate } from "../lib/hostUpdate";
+import { remainingAfterHostUpdate } from "../lib/hostUpdate";
 import { asyncHandler, clampInteger, HttpError, optionalBodyString, sendJson } from "../lib/http";
 import { requireUser } from "../middleware/auth";
 import { ensureResetForHost } from "../services/resetScheduler";
@@ -179,6 +179,9 @@ router.patch(
     const current = await requireOwnedHost(req.user!.id, requireRouteParam(req.params.id, "id"));
     const data: Prisma.HostUpdateInput = {};
     const resetData: Record<string, number> = {};
+    let nextAllowance: bigint | undefined;
+    let explicitRemainingBytes: bigint | undefined;
+    let correctionReason: string | null = null;
 
     if (req.body.name !== undefined) {
       data.name = optionalBodyString(req.body.name) ?? null;
@@ -188,8 +191,14 @@ router.patch(
     }
     if (req.body.trafficAllowanceBytes !== undefined) {
       const newAllowance = parseBytes(req.body.trafficAllowanceBytes, "trafficAllowanceBytes");
+      nextAllowance = newAllowance;
       data.trafficAllowanceBytes = newAllowance;
-      data.remainingBytes = remainingAfterAllowanceUpdate(current, newAllowance);
+    }
+    if (req.body.remainingBytes !== undefined) {
+      explicitRemainingBytes = parseBytes(req.body.remainingBytes, "remainingBytes");
+      correctionReason = typeof req.body.remainingCorrectionReason === "string" && req.body.remainingCorrectionReason.trim()
+        ? req.body.remainingCorrectionReason.trim()
+        : null;
     }
     if (req.body.meteringType !== undefined) {
       if (!Object.values(MeteringType).includes(req.body.meteringType)) {
@@ -246,7 +255,28 @@ router.patch(
 
     validateResetConfig(resetData);
 
-    const host = await prisma.host.update({ where: { id: current.id }, data });
+    const nextRemaining = remainingAfterHostUpdate(current, {
+      trafficAllowanceBytes: nextAllowance,
+      remainingBytes: explicitRemainingBytes,
+    });
+    if (nextRemaining !== undefined) {
+      data.remainingBytes = nextRemaining;
+    }
+
+    const host = await prisma.$transaction(async (tx) => {
+      if (explicitRemainingBytes !== undefined && explicitRemainingBytes !== current.remainingBytes) {
+        await tx.remainingCorrection.create({
+          data: {
+            hostId: current.id,
+            userId: req.user!.id,
+            previousRemainingBytes: current.remainingBytes,
+            newRemainingBytes: explicitRemainingBytes,
+            reason: correctionReason,
+          },
+        });
+      }
+      return tx.host.update({ where: { id: current.id }, data });
+    });
     const sampleMetrics = await buildSampleMetrics([host.id]);
     sendJson(res, { host: hostDto(host, req.user!, sampleMetrics.get(host.id)) });
   }),
