@@ -116,7 +116,7 @@ Supported metering types:
 
 - Put the server behind HTTPS before installing agents over the network.
 - Set `PUBLIC_URL` to the external HTTPS origin so dashboard install commands point at the reachable central server.
-- Public IP tracking is collected by the central server from the request source on agent join/report, not from agent self-reporting. If the app is behind a reverse proxy, set `TRUST_PROXY` to the trusted hop count or proxy subnet. If exposed through Kubernetes NodePort, keep the service `externalTrafficPolicy` set to `Local` so Kubernetes preserves the original client source IP.
+- Public IP tracking is collected by the central server from the request source on agent join/report, not from agent self-reporting. If the app is behind a reverse proxy, set `TRUST_PROXY` to the trusted hop count or proxy subnet. The k3s deploy script defaults `TRUST_PROXY=1` for an Apache/host-proxy-to-NodePort setup. If exposed directly through Kubernetes NodePort, keep the service `externalTrafficPolicy` set to `Local` so Kubernetes preserves the original client source IP and set `TRUST_PROXY=false` unless only trusted proxies can reach the NodePort.
 - Use a strong `JWT_SECRET`.
 - Set `PUBLIC_URL` to the external URL users can open so verification and password reset links are valid.
 - Rotate the account join token if it leaks. Existing agents keep working because they use per-host agent keys after joining.

@@ -56,6 +56,8 @@ MYSQL_DATABASE="${MYSQL_DATABASE:-traffic_usage_monitor}"
 MYSQL_USER="${MYSQL_USER:-traffic_usage_monitor}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:-}"
 DATABASE_URL="${DATABASE_URL:-}"
+TRUST_PROXY="${TRUST_PROXY:-1}"
+LOG_AGENT_IP_DEBUG="${LOG_AGENT_IP_DEBUG:-false}"
 
 kubectl_required() {
   if ! command -v kubectl >/dev/null 2>&1; then
