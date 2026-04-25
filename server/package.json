@@ -8,6 +8,7 @@
     "dev": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/index.ts",
     "build": "webpack --mode production",
     "start": "node dist/server.js",
+    "test": "node --test -r ts-node/register tests/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "npm run typecheck",
     "format": "prettier --write 'src/**/*.ts'",

@@ -13,6 +13,6 @@
     },
     "types": ["node"]
   },
-  "include": ["src/**/*", "../shared/config/**/*", "../shared/types/**/*"],
+  "include": ["src/**/*", "tests/**/*", "../shared/config/**/*", "../shared/types/**/*"],
   "exclude": ["dist", "node_modules", "../shared/**/*.tsx"]
 }

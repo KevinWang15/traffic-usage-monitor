@@ -3,6 +3,7 @@ import { Router } from "express";
 import prisma from "../prisma";
 import { parseBytes, percentBasisPointsToPercent, percentToBasisPoints, remainingPercent } from "../lib/bytes";
 import { validateResetConfig } from "../lib/cycles";
+import { remainingAfterAllowanceUpdate } from "../lib/hostUpdate";
 import { asyncHandler, clampInteger, HttpError, optionalBodyString, sendJson } from "../lib/http";
 import { requireUser } from "../middleware/auth";
 import { ensureResetForHost } from "../services/resetScheduler";
@@ -188,9 +189,7 @@ router.patch(
     if (req.body.trafficAllowanceBytes !== undefined) {
       const newAllowance = parseBytes(req.body.trafficAllowanceBytes, "trafficAllowanceBytes");
       data.trafficAllowanceBytes = newAllowance;
-      if (newAllowance !== current.trafficAllowanceBytes) {
-        data.remainingBytes = newAllowance > current.usedBytes ? newAllowance - current.usedBytes : 0n;
-      }
+      data.remainingBytes = remainingAfterAllowanceUpdate(current, newAllowance);
     }
     if (req.body.meteringType !== undefined) {
       if (!Object.values(MeteringType).includes(req.body.meteringType)) {
