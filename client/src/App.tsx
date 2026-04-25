@@ -124,7 +124,20 @@ function labelStatus(status: FleetStatus): string {
 
 function detectProvider(host: HostDto): string {
   const source = `${host.name || ""} ${host.hostname}`.toLowerCase();
-  const known = ["DMIT", "Hetzner", "OVH", "Vultr", "Linode", "Contabo", "LeaseWeb", "Datapacket"];
+  const known = [
+    "DMIT",
+    "OneProvider",
+    "DreamCloud",
+    "Bandwagon",
+    "RFCHost",
+    "Hetzner",
+    "OVH",
+    "Vultr",
+    "Linode",
+    "Contabo",
+    "LeaseWeb",
+    "Datapacket",
+  ];
   return known.find((provider) => source.includes(provider.toLowerCase())) || "Unassigned";
 }
 
