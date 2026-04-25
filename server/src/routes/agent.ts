@@ -1,7 +1,8 @@
 import { ResetPeriod } from "@prisma/client";
-import { Router } from "express";
+import { Router, type Request } from "express";
 import prisma from "../prisma";
 import { readAgentAsset } from "../agentAssets";
+import { env } from "../config";
 import { asyncHandler, HttpError, sendJson } from "../lib/http";
 import { observedRequestIp } from "../lib/requestIp";
 import { hashSecret, randomToken, readBearerToken } from "../lib/security";
@@ -17,6 +18,22 @@ function stringOrNull(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function logAgentIpDebug(req: Request, route: "join" | "report", publicIp: string | null): void {
+  if (!env.logAgentIpDebug) {
+    return;
+  }
+
+  console.log("agent-ip-debug", {
+    route,
+    publicIp,
+    reqIp: req.ip,
+    remoteAddress: req.socket.remoteAddress,
+    xForwardedFor: req.header("x-forwarded-for") || null,
+    xRealIp: req.header("x-real-ip") || null,
+    forwarded: req.header("forwarded") || null,
+  });
 }
 
 router.get("/install.sh", (_req, res) => {
@@ -41,6 +58,7 @@ router.post(
     const machineId = stringOrNull(req.body.machineId) || `${hostname}:${randomToken(8)}`;
     const bootId = stringOrNull(req.body.bootId);
     const publicIp = observedRequestIp(req);
+    logAgentIpDebug(req, "join", publicIp);
     const agentKey = randomToken(32);
     const now = new Date();
 
@@ -92,7 +110,9 @@ router.post(
   "/report",
   requireAgent,
   asyncHandler(async (req, res) => {
-    const result = await processAgentReport(req.agentHost!.id, req.body, { publicIp: observedRequestIp(req) });
+    const publicIp = observedRequestIp(req);
+    logAgentIpDebug(req, "report", publicIp);
+    const result = await processAgentReport(req.agentHost!.id, req.body, { publicIp });
     sendJson(res, { ok: true, ...result });
   }),
 );

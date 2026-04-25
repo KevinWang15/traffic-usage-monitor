@@ -47,6 +47,7 @@ The project keeps the same scaffold shape:
    - `JWT_SECRET`: long random secret
    - `PUBLIC_URL`: public URL for the central server. In local Vite dev this can stay `http://localhost:5173`; in production set it to your HTTPS origin.
    - `TRUST_PROXY`: optional Express trust proxy setting. Leave `false` for direct connections; set a hop count or trusted proxy subnet when the app is behind a reverse proxy and should use forwarded client IP headers.
+   - `LOG_AGENT_IP_DEBUG`: optional `true`/`false` request IP diagnostics for agent join/report.
    - `ENGAGE_LAB_USERNAME`, `ENGAGE_LAB_API_KEY`, `ENGAGE_LAB_FROM_EMAIL`: required to send alert email.
 
 3. Generate Prisma client and create tables:
@@ -115,7 +116,7 @@ Supported metering types:
 
 - Put the server behind HTTPS before installing agents over the network.
 - Set `PUBLIC_URL` to the external HTTPS origin so dashboard install commands point at the reachable central server.
-- Public IP tracking is collected by the central server from the request source on agent join/report, not from agent self-reporting. If the app is behind a reverse proxy, set `TRUST_PROXY` to the trusted hop count or proxy subnet. If exposed through Kubernetes NodePort and you need the original client source IP, set the service `externalTrafficPolicy` to `Local`.
+- Public IP tracking is collected by the central server from the request source on agent join/report, not from agent self-reporting. If the app is behind a reverse proxy, set `TRUST_PROXY` to the trusted hop count or proxy subnet. If exposed through Kubernetes NodePort, keep the service `externalTrafficPolicy` set to `Local` so Kubernetes preserves the original client source IP.
 - Use a strong `JWT_SECRET`.
 - Set `PUBLIC_URL` to the external URL users can open so verification and password reset links are valid.
 - Rotate the account join token if it leaks. Existing agents keep working because they use per-host agent keys after joining.
