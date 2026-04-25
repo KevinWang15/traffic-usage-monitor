@@ -49,6 +49,7 @@ function hostDto(host: Host, user: User, sampleMetrics: HostSampleMetrics = EMPT
     notes: host.notes,
     hostname: host.hostname,
     machineId: host.machineId,
+    publicIp: host.publicIp,
     status: host.status,
     trafficAllowanceBytes: host.trafficAllowanceBytes,
     remainingBytes: host.remainingBytes,

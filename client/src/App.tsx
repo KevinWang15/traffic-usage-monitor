@@ -23,6 +23,7 @@ type GroupBy = "none" | "provider" | "region" | "tag" | "status";
 type SortKey =
   | "status"
   | "hostname"
+  | "publicIp"
   | "provider"
   | "region"
   | "usedBytes"
@@ -37,6 +38,7 @@ type NodeView = {
   host: HostDto;
   id: string;
   hostname: string;
+  publicIp: string;
   title: string;
   provider: string;
   region: string;
@@ -159,6 +161,7 @@ function toNodeView(host: HostDto): NodeView {
     host,
     id: host.id,
     hostname: host.hostname,
+    publicIp: host.publicIp || "",
     title: host.name || host.hostname,
     provider,
     region,
@@ -740,6 +743,7 @@ function HostTable({
     { key: "sel", label: "", sortable: false },
     { key: "status", label: "Status" },
     { key: "hostname", label: "Host" },
+    { key: "publicIp", label: "Public IP" },
     { key: "region", label: "Region" },
     { key: "tags", label: "Tags", sortable: false },
     { key: "usedBytes", label: "Used", align: "right" },
@@ -866,6 +870,7 @@ function MemoGroupRows({
                 <span className="sub">{node.hostname} · {node.host.machineId || "no machine id"}</span>
               </div>
             </td>
+            <td className="mono subtle">{node.publicIp || "—"}</td>
             <td className="mono subtle">{node.region}</td>
             <td>{node.tags.slice(0, 3).map((tag) => <span key={tag} className="tag">{tag}</span>)}</td>
             <td className="num right">{formatBytes(node.host.usedBytes)}</td>
@@ -1007,7 +1012,7 @@ function Inspector({
           <div>
             <div className="drawer-kicker">HOST · {node.provider} · {node.region}</div>
             <h2>{node.title}</h2>
-            <div className="drawer-sub">{node.id} · {node.host.machineId || "no machine id"}</div>
+            <div className="drawer-sub">{node.id} · {node.publicIp || "no public IP observed"}</div>
             <div className="tag-row">
               <StatusCell status={node.status} />
               {node.tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}
@@ -1047,6 +1052,12 @@ function Inspector({
                 <div className="field"><span>Joined</span><strong className="mono">{shortDate(node.host.createdAt)}</strong></div>
                 <div className="field"><span>Last seen</span><strong className="mono">{relTime(node.host.lastSeenAt || node.host.lastReportAt)}</strong></div>
               </div>
+              <div className="section-h">Network</div>
+              <div className="field-grid readonly-grid">
+                <div className="field"><span>Public IP</span><strong className="mono">{node.publicIp || "—"}</strong></div>
+                <div className="field"><span>Hostname</span><strong className="mono">{node.hostname}</strong></div>
+                <div className="field field-full"><span>Machine ID</span><strong className="mono">{node.host.machineId || "—"}</strong></div>
+              </div>
             </>
           ) : null}
           {tab === "settings" ? (
@@ -1055,6 +1066,7 @@ function Inspector({
               <div className="field-grid">
                 <label className="field">Display name<input value={name} onChange={(event) => setName(event.target.value)} /></label>
                 <div className="field"><span>Hostname</span><strong className="mono">{node.hostname}</strong></div>
+                <div className="field"><span>Public IP</span><strong className="mono">{node.publicIp || "—"}</strong></div>
                 <label className="field field-full">Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} placeholder="Optional" /></label>
               </div>
               <div className="section-h">Quota</div>
@@ -1285,7 +1297,7 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
       if (!query) {
         return true;
       }
-      return `${node.title} ${node.hostname} ${node.host.notes || ""} ${node.id} ${node.host.machineId || ""} ${node.provider} ${node.region} ${node.tags.join(" ")}`
+      return `${node.title} ${node.hostname} ${node.publicIp} ${node.host.notes || ""} ${node.id} ${node.host.machineId || ""} ${node.provider} ${node.region} ${node.tags.join(" ")}`
         .toLowerCase()
         .includes(query);
     });

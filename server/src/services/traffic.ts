@@ -21,6 +21,10 @@ type AgentReportPayload = {
   interfaces?: unknown;
 };
 
+type AgentReportContext = {
+  publicIp?: string | null;
+};
+
 function stringOrNull(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -51,7 +55,7 @@ function parseObservedAt(value: unknown): Date {
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
-export async function processAgentReport(hostId: string, payload: AgentReportPayload) {
+export async function processAgentReport(hostId: string, payload: AgentReportPayload, context: AgentReportContext = {}) {
   const initialHost = await prisma.host.findUnique({ where: { id: hostId } });
   if (!initialHost) {
     throw new HttpError(404, "Host not found");
@@ -149,6 +153,7 @@ export async function processAgentReport(hostId: string, payload: AgentReportPay
       data: {
         hostname,
         machineId,
+        publicIp: context.publicIp ?? current.publicIp,
         lastBootId: bootId || current.lastBootId,
         usedBytes: { increment: totalMeteredBytes },
         remainingBytes: nextRemaining,

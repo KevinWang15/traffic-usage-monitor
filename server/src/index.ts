@@ -11,6 +11,7 @@ import { startResetScheduler } from "./services/resetScheduler";
 
 const app = express();
 
+app.set("trust proxy", env.trustProxy);
 app.use(express.json({ limit: "1mb" }));
 app.use(cors({ credentials: true }));
 app.use(API_PREFIX, routes);

@@ -22,6 +22,8 @@ The deployment script supports:
 
 Set `PUBLIC_URL` to the external HTTPS origin users and agents can reach. Dashboard Linux install commands, email verification links, and password reset links use this URL.
 
+The app records each node's public IP from the management server's observed request source during agent join/report. For direct NodePort exposure, set `DEPLOYMENT_EXTERNAL_TRAFFIC_POLICY=Local` if you need Kubernetes to preserve the agent's source IP. If traffic reaches the app through a trusted reverse proxy or ingress, set `TRUST_PROXY` to the trusted hop count or proxy subnet so Express uses the correct forwarded client IP.
+
 The app exposes Prometheus-format metrics at `/api/metrics`. The generated Service includes standard `prometheus.io/*` scrape annotations, and `deploy.sh` also installs Prometheus by default with a static scrape target for the app Service. Prometheus is exposed on `DEPLOYMENT_PROMETHEUS_NODE_PORT` (`30090` by default).
 
 Set `DEPLOYMENT_CREATE_PROMETHEUS=false` if you want to use an external Prometheus instead. The checked-in `k3s/prometheus.yaml` mirrors the default rendered resources for a fixed `traffic-usage-monitor` namespace; `deploy.sh render` should be used when names, ports, image, storage class, or retention are customized.

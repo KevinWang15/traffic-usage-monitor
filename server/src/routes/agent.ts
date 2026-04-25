@@ -3,6 +3,7 @@ import { Router } from "express";
 import prisma from "../prisma";
 import { readAgentAsset } from "../agentAssets";
 import { asyncHandler, HttpError, sendJson } from "../lib/http";
+import { observedRequestIp } from "../lib/requestIp";
 import { hashSecret, randomToken, readBearerToken } from "../lib/security";
 import { normalizeCycleStart } from "../lib/cycles";
 import { requireAgent } from "../middleware/auth";
@@ -39,6 +40,7 @@ router.post(
     const name = stringOrNull(req.body.name);
     const machineId = stringOrNull(req.body.machineId) || `${hostname}:${randomToken(8)}`;
     const bootId = stringOrNull(req.body.bootId);
+    const publicIp = observedRequestIp(req);
     const agentKey = randomToken(32);
     const now = new Date();
 
@@ -59,6 +61,7 @@ router.post(
         name,
         hostname,
         machineId,
+        publicIp,
         lastBootId: bootId,
         agentKeyHash: hashSecret(agentKey),
         currentCycleId: cycle.id,
@@ -69,6 +72,7 @@ router.post(
       update: {
         name: name ?? undefined,
         hostname,
+        publicIp,
         lastBootId: bootId,
         agentKeyHash: hashSecret(agentKey),
         status: "ACTIVE",
@@ -88,7 +92,7 @@ router.post(
   "/report",
   requireAgent,
   asyncHandler(async (req, res) => {
-    const result = await processAgentReport(req.agentHost!.id, req.body);
+    const result = await processAgentReport(req.agentHost!.id, req.body, { publicIp: observedRequestIp(req) });
     sendJson(res, { ok: true, ...result });
   }),
 );

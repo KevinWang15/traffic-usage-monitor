@@ -31,6 +31,7 @@ IMAGE_PULL_SECRET="${DEPLOYMENT_IMAGE_PULL_SECRET:-}"
 REPLICAS="${DEPLOYMENT_REPLICAS:-1}"
 CONTAINER_PORT="${DEPLOYMENT_CONTAINER_PORT:-3000}"
 NODE_PORT="${DEPLOYMENT_NODE_PORT:-25336}"
+EXTERNAL_TRAFFIC_POLICY="${DEPLOYMENT_EXTERNAL_TRAFFIC_POLICY:-Cluster}"
 RUN_MIGRATIONS="${DEPLOYMENT_RUN_MIGRATIONS:-true}"
 CREATE_MYSQL="${DEPLOYMENT_CREATE_MYSQL:-true}"
 MYSQL_NAME="${DEPLOYMENT_MYSQL_NAME:-traffic-usage-monitor-mysql}"
@@ -139,6 +140,7 @@ create_app_secret() {
 
   {
     write_env_key PUBLIC_URL
+    write_env_key TRUST_PROXY
     write_env_key APP_VERSION
     write_env_key NODE_ENV
     write_env_key PORT
@@ -229,6 +231,7 @@ metadata:
     prometheus.io/port: "${CONTAINER_PORT}"
 spec:
   type: NodePort
+  externalTrafficPolicy: ${EXTERNAL_TRAFFIC_POLICY}
   selector:
     app.kubernetes.io/name: ${APP_NAME}
   ports:
