@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  Check,
   Copy,
   LogOut,
   RefreshCw,
@@ -453,10 +454,19 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
   const [threshold, setThreshold] = useState(String(user.defaultAlertThresholdPercent));
   const [joinCommand, setJoinCommand] = useState<JoinCommandResponse | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     api.joinCommand().then(setJoinCommand).catch((error) => setNotice({ type: "error", message: String(error) }));
   }, []);
+
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+    const timer = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
 
   async function saveThreshold() {
     setNotice(null);
@@ -499,7 +509,7 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
     setNotice(null);
     try {
       await navigator.clipboard.writeText(joinCommand.command);
-      setNotice({ type: "ok", message: "Install command copied." });
+      setCopied(true);
     } catch {
       setNotice({ type: "error", message: "Failed to copy install command." });
     }
@@ -517,7 +527,10 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
       </div>
       <pre className="command">{joinCommand?.command || "Loading install command..."}</pre>
       <div className="button-row">
-        <button className="btn btn-primary" onClick={copyCommand} disabled={!joinCommand}><Copy size={14} /> Copy command</button>
+        <button className="btn btn-primary" onClick={copyCommand} disabled={!joinCommand}>
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? "Copied" : "Copy command"}
+        </button>
         <button className="btn" onClick={rotateToken}>Rotate join token</button>
         <button className="btn" onClick={sendTestEmail}>Send test email</button>
       </div>
