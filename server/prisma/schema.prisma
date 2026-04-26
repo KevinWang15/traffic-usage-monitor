@@ -54,6 +54,7 @@ model Host {
   machineId                  String?
   publicIp                   String?
   countryCode                String?               @db.VarChar(2)
+  countryCodeOverride        String?               @db.VarChar(2)
   lastBootId                 String?
   agentKeyHash               String
   status                     HostStatus            @default(ACTIVE)

@@ -19,7 +19,7 @@ The project keeps the same scaffold shape:
 - Hosts run a dumb Linux-only agent that reads `/proc/net/dev` counters, like vnStat-style interface accounting, and reports raw totals to the central server.
 - The central server owns traffic allowance, reset cycle, metering mode, manual corrections, and alert policy.
 - Per-host allowance, reset period/date, metering type, alert threshold override, and agent poll interval are configurable centrally.
-- The server records the public IP it observes for each host during join and report requests.
+- The server records the public IP it observes for each host during join and report requests, and can auto-detect country from a local MaxMind database.
 - Users can manually correct remaining traffic for a host.
 - Reset checks run every minute. For each host, the server normalizes the current UTC time to the configured cycle start and stores that cycle identifier in the database to avoid duplicate resets.
 - Alerts are emailed to the account email address when remaining traffic falls below the threshold. Alerts are throttled per host to at most one email every 3 hours.
@@ -47,6 +47,7 @@ The project keeps the same scaffold shape:
    - `JWT_SECRET`: long random secret
    - `PUBLIC_URL`: public URL for the central server. In local Vite dev this can stay `http://localhost:5173`; in production set it to your HTTPS origin.
    - `TRUST_PROXY`: optional Express trust proxy setting. Leave `false` for direct connections; set a hop count or trusted proxy subnet when the app is behind a reverse proxy and should use forwarded client IP headers.
+   - `GEOIP_MMDB_PATH`: optional path to a local MaxMind GeoLite2/GeoIP2 Country `.mmdb` file. When unset, the server uses the bundled `server/geoip/GeoLite2-Country.mmdb`.
    - `LOG_AGENT_IP_DEBUG`: optional `true`/`false` request IP diagnostics for agent join/report.
    - `ENGAGE_LAB_USERNAME`, `ENGAGE_LAB_API_KEY`, `ENGAGE_LAB_FROM_EMAIL`: required to send alert email.
 
@@ -117,6 +118,7 @@ Supported metering types:
 - Put the server behind HTTPS before installing agents over the network.
 - Set `PUBLIC_URL` to the external HTTPS origin so dashboard install commands point at the reachable central server.
 - Public IP tracking is collected by the central server from the request source on agent join/report, not from agent self-reporting. If the app is behind a reverse proxy, set `TRUST_PROXY` to the trusted hop count or proxy subnet. The k3s deploy script defaults `TRUST_PROXY=1` for an Apache/host-proxy-to-NodePort setup. If exposed directly through Kubernetes NodePort, keep the service `externalTrafficPolicy` set to `Local` so Kubernetes preserves the original client source IP and set `TRUST_PROXY=false` unless only trusted proxies can reach the NodePort.
+- Country auto-detection uses the bundled MaxMind Country `.mmdb` file. Set `GEOIP_MMDB_PATH` only if you want to override it with another database. In k3s, `DEPLOYMENT_GEOIP_MMDB_HOST_PATH` can mount a host-side replacement at that container path. Hosts also support a manual country override for ranges where databases disagree with the observed service location.
 - Use a strong `JWT_SECRET`.
 - Set `PUBLIC_URL` to the external URL users can open so verification and password reset links are valid.
 - Rotate the account join token if it leaks. Existing agents keep working because they use per-host agent keys after joining.

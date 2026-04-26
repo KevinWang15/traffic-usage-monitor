@@ -29,6 +29,7 @@ COPY server/package*.json ./
 RUN npm install --omit=dev
 COPY --from=builder /app/server/dist ./dist
 COPY --from=builder /app/server/prisma ./prisma
+COPY --from=builder /app/server/geoip ./geoip
 COPY --from=builder /app/client/dist ./dist/public
 RUN npx prisma generate
 

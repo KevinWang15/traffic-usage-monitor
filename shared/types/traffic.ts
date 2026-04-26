@@ -10,6 +10,8 @@ export type HostDto = {
   machineId: string | null;
   publicIp: string | null;
   countryCode: string | null;
+  countryCodeAuto: string | null;
+  countryCodeOverride: string | null;
   status: HostStatus;
   trafficAllowanceBytes: string;
   remainingBytes: string;

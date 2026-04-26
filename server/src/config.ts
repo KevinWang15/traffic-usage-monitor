@@ -1,6 +1,9 @@
 import dotenv from "dotenv";
+import path from "path";
 
 dotenv.config();
+
+const bundledGeoipMmdbPath = path.resolve(__dirname, "../geoip/GeoLite2-Country.mmdb");
 
 function requiredEnv(name: string, fallback?: string): string {
   const value = process.env[name] || fallback;
@@ -33,6 +36,7 @@ export const env = {
   port: Number(process.env.PORT || 3000),
   publicUrl: (process.env.PUBLIC_URL || "http://localhost:3000").replace(/\/$/, ""),
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
+  geoipMmdbPath: process.env.GEOIP_MMDB_PATH || bundledGeoipMmdbPath,
   logAgentIpDebug: process.env.LOG_AGENT_IP_DEBUG === "true",
   appVersion: process.env.APP_VERSION || "0.1.0",
   jwtSecret: requiredEnv("JWT_SECRET", "replace-with-a-long-random-secret"),

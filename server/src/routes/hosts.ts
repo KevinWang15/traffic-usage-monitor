@@ -44,6 +44,7 @@ function buildThroughputSeries(
 
 function hostDto(host: Host, user: User, sampleMetrics: HostSampleMetrics = EMPTY_SAMPLE_METRICS) {
   const threshold = host.alertThresholdBasisPts ?? user.defaultAlertThresholdBasisPts;
+  const effectiveCountryCode = host.countryCodeOverride ?? host.countryCode;
   return {
     id: host.id,
     name: host.name,
@@ -51,7 +52,9 @@ function hostDto(host: Host, user: User, sampleMetrics: HostSampleMetrics = EMPT
     hostname: host.hostname,
     machineId: host.machineId,
     publicIp: host.publicIp,
-    countryCode: host.countryCode,
+    countryCode: effectiveCountryCode,
+    countryCodeAuto: host.countryCode,
+    countryCodeOverride: host.countryCodeOverride,
     status: host.status,
     trafficAllowanceBytes: host.trafficAllowanceBytes,
     remainingBytes: host.remainingBytes,
@@ -145,6 +148,19 @@ function requireRouteParam(value: string | string[] | undefined, fieldName: stri
   return value;
 }
 
+function optionalCountryCode(value: unknown): string | null | undefined {
+  const countryCode = optionalBodyString(value);
+  if (countryCode === undefined || countryCode === null) {
+    return countryCode;
+  }
+
+  const normalized = countryCode.toUpperCase();
+  if (!/^[A-Z]{2}$/.test(normalized)) {
+    throw new HttpError(400, "countryCodeOverride must be a two-letter country code");
+  }
+  return normalized;
+}
+
 router.get(
   "/",
   asyncHandler(async (req, res) => {
@@ -189,6 +205,9 @@ router.patch(
     }
     if (req.body.notes !== undefined) {
       data.notes = optionalBodyString(req.body.notes) ?? null;
+    }
+    if (req.body.countryCodeOverride !== undefined) {
+      data.countryCodeOverride = optionalCountryCode(req.body.countryCodeOverride);
     }
     if (req.body.trafficAllowanceBytes !== undefined) {
       const newAllowance = parseBytes(req.body.trafficAllowanceBytes, "trafficAllowanceBytes");

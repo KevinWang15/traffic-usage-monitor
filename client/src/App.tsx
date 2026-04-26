@@ -952,6 +952,7 @@ function Inspector({
   const [resetMinuteUtc, setResetMinuteUtc] = useState("0");
   const [alertThreshold, setAlertThreshold] = useState("");
   const [pollInterval, setPollInterval] = useState("60");
+  const [countryCodeOverride, setCountryCodeOverride] = useState("");
   const [remainingGiB, setRemainingGiB] = useState("0");
   const [notice, setNotice] = useState<Notice>(null);
   const [saving, setSaving] = useState(false);
@@ -977,6 +978,7 @@ function Inspector({
     setResetMinuteUtc(String(host.resetMinuteUtc));
     setAlertThreshold(host.alertThresholdOverridePercent === null ? "" : String(host.alertThresholdOverridePercent));
     setPollInterval(String(host.pollIntervalSeconds));
+    setCountryCodeOverride(host.countryCodeOverride || "");
     setRemainingGiB(bytesToGiB(host.remainingBytes));
     setNotice(null);
   }, [node?.id]);
@@ -1007,6 +1009,7 @@ function Inspector({
         resetMinuteUtc: Number(resetMinuteUtc),
         alertThresholdPercent: alertThreshold === "" ? null : Number(alertThreshold),
         pollIntervalSeconds: Number(pollInterval),
+        countryCodeOverride: countryCodeOverride.trim().toUpperCase(),
         remainingBytes: gibToBytes(remainingGiB),
       };
 
@@ -1090,6 +1093,8 @@ function Inspector({
                 <label className="field">Display name<input value={name} onChange={(event) => setName(event.target.value)} /></label>
                 <div className="field"><span>Hostname</span><strong className="mono">{node.hostname}</strong></div>
                 <div className="field"><span>Public IP</span><strong className="mono">{node.publicIp || "—"}</strong></div>
+                <label className="field">Country override<input value={countryCodeOverride} onChange={(event) => setCountryCodeOverride(event.target.value.toUpperCase())} placeholder={node.host.countryCodeAuto || "Auto"} maxLength={2} /></label>
+                <div className="field"><span>Auto country</span><strong className="mono">{node.host.countryCodeAuto || "—"}</strong></div>
                 <label className="field field-full">Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} placeholder="Optional" /></label>
               </div>
               <div className="section-h">Quota</div>

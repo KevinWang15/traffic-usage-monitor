@@ -149,10 +149,11 @@ export async function processAgentReport(hostId: string, payload: AgentReportPay
     }
     const nextRemaining = current.remainingBytes > totalMeteredBytes ? current.remainingBytes - totalMeteredBytes : 0n;
     const publicIp = context.publicIp ?? current.publicIp;
-    const countryCode =
-      context.publicIp && (context.publicIp !== current.publicIp || !current.countryCode)
-        ? lookupCountryCode(context.publicIp)
-        : current.countryCode;
+    const publicIpChanged = Boolean(context.publicIp && context.publicIp !== current.publicIp);
+    const detectedCountryCode = context.publicIp ? lookupCountryCode(context.publicIp) : null;
+    const countryCode = context.publicIp
+      ? detectedCountryCode ?? (publicIpChanged ? null : current.countryCode)
+      : current.countryCode;
 
     await tx.host.update({
       where: { id: hostId },

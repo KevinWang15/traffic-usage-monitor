@@ -50,6 +50,7 @@ PROMETHEUS_NODE_PORT="${DEPLOYMENT_PROMETHEUS_NODE_PORT:-30090}"
 PROMETHEUS_STORAGE_SIZE="${DEPLOYMENT_PROMETHEUS_STORAGE_SIZE:-5Gi}"
 PROMETHEUS_STORAGE_CLASS="${DEPLOYMENT_PROMETHEUS_STORAGE_CLASS:-}"
 PROMETHEUS_RETENTION="${DEPLOYMENT_PROMETHEUS_RETENTION:-15d}"
+GEOIP_MMDB_HOST_PATH="${DEPLOYMENT_GEOIP_MMDB_HOST_PATH:-}"
 
 MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-}"
 MYSQL_DATABASE="${MYSQL_DATABASE:-traffic_usage_monitor}"
@@ -57,6 +58,7 @@ MYSQL_USER="${MYSQL_USER:-traffic_usage_monitor}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:-}"
 DATABASE_URL="${DATABASE_URL:-}"
 TRUST_PROXY="${TRUST_PROXY:-1}"
+GEOIP_MMDB_PATH="${GEOIP_MMDB_PATH:-}"
 LOG_AGENT_IP_DEBUG="${LOG_AGENT_IP_DEBUG:-false}"
 
 kubectl_required() {
@@ -143,6 +145,7 @@ create_app_secret() {
   {
     write_env_key PUBLIC_URL
     write_env_key TRUST_PROXY
+    write_env_key GEOIP_MMDB_PATH
     write_env_key LOG_AGENT_IP_DEBUG
     write_env_key APP_VERSION
     write_env_key NODE_ENV
@@ -482,6 +485,8 @@ EOF2
 render_deployment() {
   local image_pull_secret_block=""
   local init_container_block=""
+  local geoip_volume_mount_block=""
+  local geoip_volume_block=""
 
   if [[ -n "$IMAGE_PULL_SECRET" ]]; then
     image_pull_secret_block=$(cat <<EOF2
@@ -501,6 +506,24 @@ EOF2
           envFrom:
             - secretRef:
                 name: ${SECRET_NAME}
+EOF2
+)
+  fi
+
+  if [[ -n "$GEOIP_MMDB_HOST_PATH" && -n "$GEOIP_MMDB_PATH" ]]; then
+    geoip_volume_mount_block=$(cat <<EOF2
+          volumeMounts:
+            - name: geoip-mmdb
+              mountPath: ${GEOIP_MMDB_PATH}
+              readOnly: true
+EOF2
+)
+    geoip_volume_block=$(cat <<EOF2
+      volumes:
+        - name: geoip-mmdb
+          hostPath:
+            path: ${GEOIP_MMDB_HOST_PATH}
+            type: File
 EOF2
 )
   fi
@@ -540,6 +563,7 @@ ${init_container_block}
           envFrom:
             - secretRef:
                 name: ${SECRET_NAME}
+${geoip_volume_mount_block}
           livenessProbe:
             httpGet:
               path: /api/health
@@ -556,6 +580,7 @@ ${init_container_block}
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5
+${geoip_volume_block}
 EOF2
 }
 
