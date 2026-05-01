@@ -32,6 +32,10 @@ export type HostDto = {
   trafficSpark: number[];
   alertThresholdPercent: number;
   alertThresholdOverridePercent: number | null;
+  trafficAlertSuppressed: boolean;
+  trafficAlertSuppressedAt: string | null;
+  trafficAlertSuppressedUntilUsedBytes: string | null;
+  trafficAlertSuppressedUntilUsedPercent: number | null;
   pollIntervalSeconds: number;
   createdAt: string;
 };

@@ -23,6 +23,7 @@ The project keeps the same scaffold shape:
 - Users can manually correct remaining traffic for a host.
 - Reset checks run every minute. For each host, the server normalizes the current UTC time to the configured cycle start and stores that cycle identifier in the database to avoid duplicate resets.
 - Alerts are emailed to the account email address when remaining traffic falls below the threshold. Alerts are throttled per host to at most one email every 3 hours.
+- Traffic alerts can be ignored after traffic has been switched away. The ignore marker suppresses emails until used traffic increases by another 1 percentage point of the allowance, or until the next reset cycle clears it.
 - Email delivery uses the provided EngageLab `sendEmail` implementation.
 
 ## Local setup
@@ -140,6 +141,7 @@ Supported metering types:
 - `GET /api/hosts`
 - `PATCH /api/hosts/:id`
 - `POST /api/hosts/:id/correct-remaining`
+- `POST /api/hosts/:id/suppress-traffic-alert`
 - `POST /api/agent/join`
 - `POST /api/agent/report`
 - `GET /api/agent/install.sh`

@@ -2,6 +2,7 @@ import type { Host, User } from "@prisma/client";
 import prisma from "../prisma";
 import { formatBytes } from "../lib/bytes";
 import { sendEmail } from "../lib/email";
+import { isTrafficAlertSuppressed } from "../lib/trafficAlertSuppression";
 
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 export const MISSING_ALERT_SENT_STATUS = "MISSING_SENT";
@@ -38,6 +39,9 @@ export async function maybeSendTrafficAlert(host: HostWithUser): Promise<void> {
 
   const remainingBasisPoints = Number((host.remainingBytes * 10000n) / host.trafficAllowanceBytes);
   if (remainingBasisPoints > thresholdBasisPoints) {
+    return;
+  }
+  if (isTrafficAlertSuppressed(host)) {
     return;
   }
 

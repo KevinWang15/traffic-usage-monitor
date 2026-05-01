@@ -74,6 +74,8 @@ model Host {
   alertThresholdBasisPts     Int?
   lastAlertSentAt            DateTime?
   lastAlertCycleId           String?
+  trafficAlertSuppressedAt   DateTime?
+  trafficAlertSuppressedUntilUsedBytes BigInt?
   pollIntervalSeconds        Int                   @default(60)
   lastSeenAt                 DateTime?
   lastReportAt               DateTime?

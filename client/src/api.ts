@@ -123,4 +123,7 @@ export const api = {
       body: JSON.stringify({ remainingBytes, reason }),
     });
   },
+  suppressTrafficAlert(id: string) {
+    return apiFetch<{ host: HostDto }>(`/api/hosts/${id}/suppress-traffic-alert`, { method: "POST" });
+  },
 };
