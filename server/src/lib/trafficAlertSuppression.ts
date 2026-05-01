@@ -1,6 +1,6 @@
 export type TrafficAlertSuppressionState = {
   trafficAllowanceBytes: bigint;
-  usedBytes: bigint;
+  remainingBytes: bigint;
   trafficAlertSuppressedUntilUsedBytes: bigint | null;
 };
 
@@ -12,15 +12,25 @@ export function onePercentAllowanceBytes(allowanceBytes: bigint): bigint {
 }
 
 export function nextTrafficAlertSuppressionLimit(
-  host: Pick<TrafficAlertSuppressionState, "trafficAllowanceBytes" | "usedBytes">,
+  host: Pick<TrafficAlertSuppressionState, "trafficAllowanceBytes" | "remainingBytes">,
 ): bigint {
-  return host.usedBytes + onePercentAllowanceBytes(host.trafficAllowanceBytes);
+  return effectiveUsedBytes(host) + onePercentAllowanceBytes(host.trafficAllowanceBytes);
 }
 
 export function isTrafficAlertSuppressed(host: TrafficAlertSuppressionState): boolean {
   return (
-    host.trafficAlertSuppressedUntilUsedBytes !== null && host.usedBytes < host.trafficAlertSuppressedUntilUsedBytes
+    host.trafficAlertSuppressedUntilUsedBytes !== null &&
+    effectiveUsedBytes(host) < host.trafficAlertSuppressedUntilUsedBytes
   );
+}
+
+export function effectiveUsedBytes(
+  host: Pick<TrafficAlertSuppressionState, "trafficAllowanceBytes" | "remainingBytes">,
+): bigint {
+  if (host.trafficAllowanceBytes <= 0n || host.remainingBytes >= host.trafficAllowanceBytes) {
+    return 0n;
+  }
+  return host.trafficAllowanceBytes - host.remainingBytes;
 }
 
 export function usedPercentAtBytes(usedBytes: bigint | null, allowanceBytes: bigint): number | null {
