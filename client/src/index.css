@@ -345,6 +345,9 @@ table.nodes { width: 100%; border-collapse: collapse; font-size: 12px; }
 .event-row .mono { min-width: 66px; color: var(--text-3); font-size: 10.5px; }
 .alert-card { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--line-soft); border-left: 3px solid var(--crit); border-radius: 5px; padding: 10px; background: var(--bg); color: var(--text-2); }
 .alert-card strong { color: var(--crit); }
+.alert-card.muted { border-left-color: var(--warn); }
+.alert-card.muted strong { color: var(--warn); }
+.alert-actions { margin: 8px 0 0; }
 
 .content-pad { padding: 18px; }
 .install-panel {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  BellOff,
   Check,
   Copy,
   LogOut,
@@ -956,6 +957,7 @@ function Inspector({
   const [remainingGiB, setRemainingGiB] = useState("0");
   const [notice, setNotice] = useState<Notice>(null);
   const [saving, setSaving] = useState(false);
+  const [suppressing, setSuppressing] = useState(false);
 
   useEffect(() => {
     setTab("overview");
@@ -981,6 +983,7 @@ function Inspector({
     setCountryCodeOverride(host.countryCodeOverride || "");
     setRemainingGiB(bytesToGiB(host.remainingBytes));
     setNotice(null);
+    setSuppressing(false);
   }, [node?.id]);
 
   if (!node) {
@@ -1026,9 +1029,34 @@ function Inspector({
     }
   }
 
+  async function suppressTrafficAlert() {
+    setSuppressing(true);
+    try {
+      const response = await api.suppressTrafficAlert(node!.id);
+      onChanged(response.host);
+      const targetPercent = response.host.trafficAlertSuppressedUntilUsedPercent;
+      onToast({
+        type: "ok",
+        message: `Traffic alerts ignored until usage reaches ${
+          targetPercent === null ? "the next 1% step" : `${targetPercent.toFixed(2)}%`
+        } or the next reset.`,
+      });
+    } catch (error) {
+      onToast({ type: "error", message: error instanceof Error ? error.message : "Failed to ignore traffic alert" });
+    } finally {
+      setSuppressing(false);
+    }
+  }
+
   const tone = statusTone(node.status);
   const series = throughputSeries.length ? throughputSeries : bucketedBytesToMbps(node.spark);
   const historyRows = samples.slice(0, 8);
+  const isTrafficAlertStatus = node.status === "warning" || node.status === "critical" || node.status === "exceeded";
+  const trafficAlertSuppressed = isTrafficAlertStatus && node.host.trafficAlertSuppressed;
+  const suppressionTarget =
+    node.host.trafficAlertSuppressedUntilUsedPercent === null
+      ? null
+      : `${node.host.trafficAlertSuppressedUntilUsedPercent.toFixed(2)}%`;
 
   return (
     <>
@@ -1147,9 +1175,11 @@ function Inspector({
               {node.status === "active" ? (
                 <div className="empty small-empty">No active alerts.</div>
               ) : (
-                <div className="alert-card">
+                <div className={`alert-card${trafficAlertSuppressed ? " muted" : ""}`}>
                   <strong>
-                    {node.status === "missing"
+                    {trafficAlertSuppressed
+                      ? "Traffic alert ignored"
+                      : node.status === "missing"
                       ? "Node missing"
                       : node.status === "exceeded"
                         ? "Quota exceeded"
@@ -1160,8 +1190,22 @@ function Inspector({
                   <span>
                     {node.status === "missing"
                       ? `Last contact was ${relTime(node.host.lastSeenAt || node.host.lastReportAt)}. Missing-node emails are sent separately and throttled to one every 3 hours.`
+                      : trafficAlertSuppressed
+                        ? `Traffic email alerts are ignored until usage reaches ${suppressionTarget || "the next 1% step"} or the next reset.`
                       : `Remaining traffic is ${node.remainingPercent === null ? "unknown" : `${node.remainingPercent.toFixed(2)}%`} with a ${node.host.alertThresholdPercent}% alert threshold.`}
                   </span>
+                  {isTrafficAlertStatus ? (
+                    <div className="button-row alert-actions">
+                      {trafficAlertSuppressed ? (
+                        <span className="chip static"><BellOff size={13} /> Ignored until {suppressionTarget || "next step"}</span>
+                      ) : (
+                        <button className="btn" onClick={suppressTrafficAlert} disabled={suppressing}>
+                          <BellOff size={14} />
+                          {suppressing ? "Updating..." : "I have switched traffic away"}
+                        </button>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               )}
             </>

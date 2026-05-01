@@ -5,6 +5,11 @@ import { parseBytes, percentBasisPointsToPercent, percentToBasisPoints, remainin
 import { validateResetConfig } from "../lib/cycles";
 import { remainingAfterHostUpdate } from "../lib/hostUpdate";
 import { asyncHandler, clampInteger, HttpError, optionalBodyString, sendJson } from "../lib/http";
+import {
+  isTrafficAlertSuppressed,
+  nextTrafficAlertSuppressionLimit,
+  usedPercentAtBytes,
+} from "../lib/trafficAlertSuppression";
 import { requireUser } from "../middleware/auth";
 import { ensureResetForHost } from "../services/resetScheduler";
 
@@ -76,6 +81,13 @@ function hostDto(host: Host, user: User, sampleMetrics: HostSampleMetrics = EMPT
     alertThresholdPercent: percentBasisPointsToPercent(threshold),
     alertThresholdOverridePercent:
       host.alertThresholdBasisPts === null ? null : percentBasisPointsToPercent(host.alertThresholdBasisPts),
+    trafficAlertSuppressed: isTrafficAlertSuppressed(host),
+    trafficAlertSuppressedAt: host.trafficAlertSuppressedAt,
+    trafficAlertSuppressedUntilUsedBytes: host.trafficAlertSuppressedUntilUsedBytes,
+    trafficAlertSuppressedUntilUsedPercent: usedPercentAtBytes(
+      host.trafficAlertSuppressedUntilUsedBytes,
+      host.trafficAllowanceBytes,
+    ),
     pollIntervalSeconds: host.pollIntervalSeconds,
     createdAt: host.createdAt,
   };
@@ -323,6 +335,28 @@ router.post(
         where: { id: current.id },
         data: { remainingBytes: newRemainingBytes },
       });
+    });
+
+    const sampleMetrics = await buildSampleMetrics([host.id]);
+    sendJson(res, { host: hostDto(host, req.user!, sampleMetrics.get(host.id)) });
+  }),
+);
+
+router.post(
+  "/:id/suppress-traffic-alert",
+  asyncHandler(async (req, res) => {
+    const owned = await requireOwnedHost(req.user!.id, requireRouteParam(req.params.id, "id"));
+    const current = await ensureResetForHost(owned);
+    if (current.trafficAllowanceBytes <= 0n) {
+      throw new HttpError(400, "trafficAllowanceBytes must be positive to suppress traffic alerts");
+    }
+
+    const host = await prisma.host.update({
+      where: { id: current.id },
+      data: {
+        trafficAlertSuppressedAt: new Date(),
+        trafficAlertSuppressedUntilUsedBytes: nextTrafficAlertSuppressionLimit(current),
+      },
     });
 
     const sampleMetrics = await buildSampleMetrics([host.id]);

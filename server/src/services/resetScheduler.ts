@@ -58,6 +58,8 @@ export async function ensureResetForHost(host: Host, now = new Date()): Promise<
         currentCycleStartedAt: currentCycle.start,
         lastResetCycleId: currentCycle.id,
         lastAlertCycleId: null,
+        trafficAlertSuppressedAt: null,
+        trafficAlertSuppressedUntilUsedBytes: null,
       },
     });
   });
