@@ -126,4 +126,26 @@ export const api = {
   suppressTrafficAlert(id: string) {
     return apiFetch<{ host: HostDto }>(`/api/hosts/${id}/suppress-traffic-alert`, { method: "POST" });
   },
+  exportConfig() {
+    return apiFetch<ConfigExportPayload>("/api/config/export");
+  },
+  importConfig(payload: unknown) {
+    return apiFetch<{ ok: boolean; importedHosts: number; message: string }>("/api/config/import", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+};
+
+export type ConfigExportPayload = {
+  version: number;
+  app: string;
+  exportedAt: string;
+  user: {
+    email: string;
+    name: string;
+    joinToken: string;
+    defaultAlertThresholdBasisPts: number;
+  };
+  hosts: Array<Record<string, unknown>>;
 };

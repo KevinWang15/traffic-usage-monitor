@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   BellOff,
   Check,
   Copy,
+  Download,
   LogOut,
   RefreshCw,
   Save,
@@ -10,6 +11,7 @@ import {
   Settings,
   SlidersHorizontal,
   TerminalSquare,
+  Upload,
   X,
 } from "lucide-react";
 import type { HostDto, TrafficSampleDto, UserDto } from "@shared/types/traffic";
@@ -459,6 +461,9 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
   const [joinCommand, setJoinCommand] = useState<JoinCommandResponse | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const [copied, setCopied] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     api.joinCommand().then(setJoinCommand).catch((error) => setNotice({ type: "error", message: String(error) }));
@@ -519,6 +524,75 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
     }
   }
 
+  async function handleExportConfig() {
+    setExportLoading(true);
+    setNotice(null);
+    try {
+      const data = await api.exportConfig();
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const safeEmail = (user.email || "user").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+      const date = new Date().toISOString().slice(0, 10);
+      anchor.href = url;
+      anchor.download = `traffic-usage-monitor-config-${safeEmail}-${date}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+      setNotice({
+        type: "ok",
+        message: `Exported ${data.hosts.length} host configuration${data.hosts.length === 1 ? "" : "s"}.`,
+      });
+    } catch (error) {
+      setNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to export configuration" });
+    } finally {
+      setExportLoading(false);
+    }
+  }
+
+  function handleImportClick() {
+    importInputRef.current?.click();
+  }
+
+  async function handleImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    if (
+      !confirm(
+        "This will replace your account name, join token, default alert threshold, and host configurations with the uploaded backup. Continue?",
+      )
+    ) {
+      return;
+    }
+    setImportLoading(true);
+    setNotice(null);
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text) as unknown;
+      const result = await api.importConfig(payload);
+      setJoinCommand(await api.joinCommand());
+      const refreshed = await api.me();
+      onUserChanged(refreshed.user);
+      setThreshold(String(refreshed.user.defaultAlertThresholdPercent));
+      setNotice({ type: "ok", message: result.message });
+    } catch (error) {
+      const message =
+        error instanceof SyntaxError
+          ? "Invalid JSON file"
+          : error instanceof Error
+            ? error.message
+            : "Failed to import configuration";
+      setNotice({ type: "error", message });
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
   return (
     <section className="install-panel">
       <div className="panel-head">
@@ -537,6 +611,31 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
         </button>
         <button className="btn" onClick={rotateToken}>Rotate join token</button>
         <button className="btn" onClick={sendTestEmail}>Send test email</button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json,.json"
+          onChange={handleImportFile}
+          style={{ display: "none" }}
+        />
+        <button
+          className="btn"
+          onClick={handleExportConfig}
+          disabled={exportLoading || importLoading}
+          title="Download account, join token, and host configurations as JSON"
+        >
+          <Download size={14} />
+          {exportLoading ? "Exporting" : "Export config"}
+        </button>
+        <button
+          className="btn"
+          onClick={handleImportClick}
+          disabled={exportLoading || importLoading}
+          title="Restore a JSON backup so agents can reconnect after DNS switch"
+        >
+          <Upload size={14} />
+          {importLoading ? "Importing" : "Import config"}
+        </button>
       </div>
       <div className="field-grid account-grid">
         <label className="field">

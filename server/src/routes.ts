@@ -3,6 +3,7 @@ import { buildHealthPayload, SHARED_APP_NAME } from "@shared/config/runtime";
 import { env } from "./config";
 import authRoutes from "./routes/auth";
 import accountRoutes from "./routes/account";
+import configRoutes from "./routes/config";
 import hostRoutes from "./routes/hosts";
 import agentRoutes from "./routes/agent";
 import prisma from "./prisma";
@@ -71,6 +72,7 @@ function escapeMetricLabel(value: string): string {
 
 router.use("/auth", authRoutes);
 router.use("/account", accountRoutes);
+router.use("/config", configRoutes);
 router.use("/hosts", hostRoutes);
 router.use("/agent", agentRoutes);
 
