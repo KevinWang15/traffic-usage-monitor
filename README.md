@@ -125,6 +125,22 @@ Supported metering types:
 - Rotate the account join token if it leaks. Existing agents keep working because they use per-host agent keys after joining.
 - Run Prisma migrations during deploy before starting the application.
 
+## Updating existing agents
+
+To update an existing node's agent script without changing its identity, replace only the script and keep `/etc/traffic-usage-agent/config` intact. That config contains the existing `AGENT_ID` and `AGENT_KEY`.
+
+```bash
+. /etc/traffic-usage-agent/config
+
+sudo curl -fsSL "$SERVER_URL/api/agent/traffic-agent.sh" \
+  -o /usr/local/bin/traffic-agent
+
+sudo chmod 755 /usr/local/bin/traffic-agent
+sudo systemctl restart traffic-usage-agent
+```
+
+Do not rerun the full install command unless the node should rejoin. The next report will use the existing credentials and send the current self-reported public IP.
+
 ## API sketch
 
 - `POST /api/auth/signup`
