@@ -117,6 +117,9 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+  deleteHost(id: string) {
+    return apiFetch<{ ok: boolean; deletedHostId: string }>(`/api/hosts/${id}`, { method: "DELETE" });
+  },
   correctRemaining(id: string, remainingBytes: string, reason?: string) {
     return apiFetch<{ host: HostDto }>(`/api/hosts/${id}/correct-remaining`, {
       method: "POST",

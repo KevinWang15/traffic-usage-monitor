@@ -314,6 +314,15 @@ router.patch(
   }),
 );
 
+router.delete(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const host = await requireOwnedHost(req.user!.id, requireRouteParam(req.params.id, "id"));
+    await prisma.host.delete({ where: { id: host.id } });
+    sendJson(res, { ok: true, deletedHostId: host.id });
+  }),
+);
+
 router.post(
   "/:id/correct-remaining",
   asyncHandler(async (req, res) => {

@@ -11,6 +11,7 @@ import {
   Settings,
   SlidersHorizontal,
   TerminalSquare,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -991,6 +992,7 @@ function Inspector({
   samples,
   throughputSeries,
   onChanged,
+  onDeleted,
   onToast,
   onClose,
 }: {
@@ -999,6 +1001,7 @@ function Inspector({
   samples: TrafficSampleDto[];
   throughputSeries: number[];
   onChanged: (host: HostDto) => void;
+  onDeleted: (hostId: string) => void;
   onToast: (notice: NonNullable<Notice>) => void;
   onClose: () => void;
 }) {
@@ -1020,6 +1023,7 @@ function Inspector({
   const [notice, setNotice] = useState<Notice>(null);
   const [saving, setSaving] = useState(false);
   const [suppressing, setSuppressing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     setTab("overview");
@@ -1046,6 +1050,7 @@ function Inspector({
     setRemainingGiB(bytesToGiB(host.remainingBytes));
     setNotice(null);
     setSuppressing(false);
+    setDeleting(false);
   }, [node?.id]);
 
   if (!node) {
@@ -1107,6 +1112,27 @@ function Inspector({
       onToast({ type: "error", message: error instanceof Error ? error.message : "Failed to ignore traffic alert" });
     } finally {
       setSuppressing(false);
+    }
+  }
+
+  async function deleteNode() {
+    const label = node!.title;
+    if (
+      !confirm(
+        `Delete ${label}? This permanently removes the node and its traffic history. If the agent is still running, reinstall it to join again.`,
+      )
+    ) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const response = await api.deleteHost(node!.id);
+      onDeleted(response.deletedHostId);
+      onToast({ type: "ok", message: `Deleted ${label}.` });
+    } catch (error) {
+      onToast({ type: "error", message: error instanceof Error ? error.message : "Failed to delete node" });
+      setDeleting(false);
     }
   }
 
@@ -1273,11 +1299,15 @@ function Inspector({
             </>
           ) : null}
         </div>
-        {tab === "settings" ? (
-          <div className="drawer-actions">
+        <div className="drawer-actions">
+          <button className="btn btn-danger" onClick={deleteNode} disabled={deleting || saving}>
+            <Trash2 size={14} />
+            {deleting ? "Deleting..." : "Delete node"}
+          </button>
+          {tab === "settings" ? (
             <button className="btn btn-primary" onClick={saveConfig} disabled={saving}><Save size={14} /> {saving ? "Saving..." : "Save config"}</button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </aside>
     </>
   );
@@ -1405,6 +1435,11 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
     setHosts((current) => current.map((host) => (host.id === nextHost.id ? nextHost : host)));
   }
 
+  function removeHost(hostId: string) {
+    setHosts((current) => current.filter((host) => host.id !== hostId));
+    setSelectedId(null);
+  }
+
   const nodes = useMemo(() => hosts.map(toNodeView), [hosts]);
   const selectedNode = nodes.find((node) => node.id === selectedId) || null;
   const counts = useMemo(
@@ -1526,6 +1561,7 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
         samples={samples}
         throughputSeries={throughputSeries}
         onChanged={replaceHost}
+        onDeleted={removeHost}
         onToast={setToast}
         onClose={() => setSelectedId(null)}
       />

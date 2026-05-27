@@ -134,6 +134,8 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .btn:hover, .icon-btn:hover, .chip:hover { border-color: var(--line); background: var(--bg-2); color: var(--text); }
 .btn-primary { border-color: transparent; background: var(--accent); color: #0e1117; font-weight: 700; }
 .btn-primary:hover { background: #9be2c4; color: #0e1117; }
+.btn-danger { margin-right: auto; border-color: rgba(236, 127, 103, 0.45); color: #ffb4a5; }
+.btn-danger:hover { border-color: var(--crit); background: var(--crit-soft); color: #ffd0c5; }
 .chip.active { border-color: var(--accent-soft); background: var(--accent-dim); color: var(--text); }
 .chip.static { cursor: default; }
 
