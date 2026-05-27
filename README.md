@@ -133,9 +133,9 @@ To update an existing node's agent script without changing its identity, replace
 . /etc/traffic-usage-agent/config
 
 sudo curl -fsSL "$SERVER_URL/api/agent/traffic-agent.sh" \
-  -o /usr/local/bin/traffic-agent
+  -o /usr/local/bin/traffic-usage-agent
 
-sudo chmod 755 /usr/local/bin/traffic-agent
+sudo chmod 755 /usr/local/bin/traffic-usage-agent
 sudo systemctl restart traffic-usage-agent
 ```
 
