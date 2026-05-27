@@ -19,7 +19,7 @@ Repository layout:
 - Hosts run a lightweight Linux-only agent that reads `/proc/net/dev` counters, like vnStat-style interface accounting, and reports raw totals to the central server.
 - The central server owns traffic allowance, reset cycle, metering mode, manual corrections, and alert policy.
 - Per-host allowance, reset period/date, metering type, alert threshold override, and agent poll interval are configurable centrally.
-- The server stores each host's agent-reported public IP during join/report and can auto-detect country from a local MaxMind database.
+- The server stores each host's agent-reported public IPv4 during join/report and can auto-detect country from a local MaxMind database.
 - Users can manually correct remaining traffic for a host.
 - Reset checks run every minute. For each host, the server normalizes the current UTC time to the configured cycle start and stores that cycle identifier in the database to avoid duplicate resets.
 - Alerts are emailed to the account email address when remaining traffic falls below the threshold. Alerts are throttled per host to at most one email every 3 hours.
@@ -118,7 +118,7 @@ Supported metering types:
 
 - Put the server behind HTTPS before installing agents over the network.
 - Set `PUBLIC_URL` to the external HTTPS origin so dashboard install commands, verification links, and password reset links point at the reachable central server.
-- Public IP tracking comes from the agent's self-reported public IP on join/report. The agent queries `ifconfig.info` first, then falls back to other public-IP endpoints. This keeps the dashboard accurate when agents reach the server through a relay. `TRUST_PROXY` only affects diagnostic request-IP logging and unrelated Express behavior.
+- Public IP tracking comes from the agent's self-reported public IPv4 on join/report. The agent queries `ifconfig.info` over IPv4 first, then falls back to other public-IP endpoints. This keeps the dashboard accurate when agents reach the server through a relay. `TRUST_PROXY` only affects diagnostic request-IP logging and unrelated Express behavior.
 - Country auto-detection uses the bundled MaxMind Country `.mmdb` file. Set `GEOIP_MMDB_PATH` only if you want to override it with another database. In k3s, `DEPLOYMENT_GEOIP_MMDB_HOST_PATH` can mount a host-side replacement at that container path. Hosts also support a manual country override for ranges where databases disagree with the observed service location.
 - Use a strong `JWT_SECRET`.
 - Rotate the account join token if it leaks. Existing agents keep working because they use per-host agent keys after joining.
@@ -138,7 +138,7 @@ sudo chmod 755 /usr/local/bin/traffic-usage-agent
 sudo systemctl restart traffic-usage-agent
 ```
 
-Do not rerun the full install command unless the node should rejoin. The next report will use the existing credentials and send the current self-reported public IP.
+Do not rerun the full install command unless the node should rejoin. The next report will use the existing credentials and send the current self-reported public IPv4.
 
 ## API sketch
 

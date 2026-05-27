@@ -30,6 +30,11 @@ export function normalizeIpAddress(value: unknown): string | null {
   return isIP(ip) ? ip : null;
 }
 
+export function normalizeIpv4Address(value: unknown): string | null {
+  const ip = normalizeIpAddress(value);
+  return ip && isIP(ip) === 4 ? ip : null;
+}
+
 export function observedRequestIp(req: Request): string | null {
   return normalizeIpAddress(req.ip) ?? normalizeIpAddress(req.socket.remoteAddress);
 }

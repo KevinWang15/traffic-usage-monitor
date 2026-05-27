@@ -5,7 +5,7 @@ import { readAgentAsset } from "../agentAssets";
 import { env } from "../config";
 import { lookupCountryCode } from "../lib/geoip";
 import { asyncHandler, HttpError, sendJson } from "../lib/http";
-import { normalizeIpAddress, observedRequestIp } from "../lib/requestIp";
+import { normalizeIpv4Address, observedRequestIp } from "../lib/requestIp";
 import { hashSecret, randomToken, readBearerToken } from "../lib/security";
 import { normalizeCycleStart } from "../lib/cycles";
 import { requireAgent } from "../middleware/auth";
@@ -59,7 +59,7 @@ router.post(
     const name = stringOrNull(req.body.name);
     const machineId = stringOrNull(req.body.machineId) || `${hostname}:${randomToken(8)}`;
     const bootId = stringOrNull(req.body.bootId);
-    const publicIp = normalizeIpAddress(req.body.publicIp);
+    const publicIp = normalizeIpv4Address(req.body.publicIp);
     const countryCode = lookupCountryCode(publicIp);
     logAgentIpDebug(req, "join", publicIp);
     const agentKey = randomToken(32);
@@ -115,7 +115,7 @@ router.post(
   "/report",
   requireAgent,
   asyncHandler(async (req, res) => {
-    const publicIp = normalizeIpAddress(req.body.host?.publicIp);
+    const publicIp = normalizeIpv4Address(req.body.host?.publicIp);
     logAgentIpDebug(req, "report", publicIp);
     const result = await processAgentReport(req.agentHost!.id, req.body, { publicIp });
     sendJson(res, { ok: true, ...result });

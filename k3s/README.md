@@ -22,7 +22,7 @@ The deployment script supports:
 
 Set `PUBLIC_URL` to the external HTTPS origin users and agents can reach. Dashboard Linux install commands, email verification links, and password reset links use this URL.
 
-The app records each node's public IP from the agent's self-reported public IP during join/report. The agent queries `ifconfig.info` first, then falls back to other public-IP endpoints, so relayed connections do not make every node appear to have the relay's IP. Temporarily set `LOG_AGENT_IP_DEBUG=true` to log the self-reported IP along with `req.ip`, socket remote address, and forwarded IP headers for troubleshooting.
+The app records each node's public IP from the agent's self-reported public IPv4 during join/report. The agent queries `ifconfig.info` over IPv4 first, then falls back to other public-IP endpoints, so relayed connections do not make every node appear to have the relay's IP. Temporarily set `LOG_AGENT_IP_DEBUG=true` to log the self-reported IP along with `req.ip`, socket remote address, and forwarded IP headers for troubleshooting.
 
 The app exposes Prometheus-format metrics at `/api/metrics`. The generated Service includes standard `prometheus.io/*` scrape annotations, and `deploy.sh` also installs Prometheus by default with a static scrape target for the app Service. Prometheus is exposed on `DEPLOYMENT_PROMETHEUS_NODE_PORT` (`30090` by default).
 

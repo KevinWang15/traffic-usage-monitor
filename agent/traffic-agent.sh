@@ -41,13 +41,13 @@ path.write_text("\n".join(lines) + "\n")
 PY
 }
 
-valid_ip() {
+valid_ipv4() {
   python3 - "$1" <<'PY'
 import ipaddress
 import sys
 
 try:
-    ipaddress.ip_address(sys.argv[1].strip())
+    ipaddress.IPv4Address(sys.argv[1].strip())
 except ValueError:
     sys.exit(1)
 PY
@@ -60,8 +60,8 @@ detect_public_ip() {
     "https://api.ipify.org" \
     "https://ifconfig.me/ip" \
     "https://icanhazip.com"; do
-    value="$(curl -fsS --max-time 5 "$endpoint" 2>/dev/null | tr -d '[:space:]' || true)"
-    if [ -n "$value" ] && valid_ip "$value"; then
+    value="$(curl -4 -fsS --max-time 5 "$endpoint" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [ -n "$value" ] && valid_ipv4 "$value"; then
       printf '%s\n' "$value"
       return 0
     fi
