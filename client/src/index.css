@@ -175,7 +175,6 @@ h1, h2, h3, h4, p { margin-top: 0; }
 .search .kbd { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); }
 .toolbar-label { color: var(--text-3); font-size: 11px; }
 .divider-v { width: 1px; height: 18px; background: var(--line-soft); }
-.selection-count { color: var(--accent); font-size: 11px; }
 .seg { display: inline-flex; border: 1px solid var(--line-soft); border-radius: 6px; padding: 1px; background: var(--bg-1); }
 .seg button {
   border: 0;
@@ -210,7 +209,6 @@ table.nodes { width: 100%; border-collapse: collapse; font-size: 12px; }
 .nodes tbody tr:hover { background: var(--bg-1); }
 .nodes tbody tr.selected { background: var(--accent-dim); }
 .nodes td { padding: 0 10px; color: var(--text-1); vertical-align: middle; white-space: nowrap; }
-.nodes input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--accent); }
 .right { text-align: right; }
 .subtle { color: var(--text-2) !important; }
 

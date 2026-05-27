@@ -788,7 +788,6 @@ function Toolbar({
   setDensity,
   showSpark,
   setShowSpark,
-  selected,
   onRefresh,
 }: {
   q: string;
@@ -801,7 +800,6 @@ function Toolbar({
   setDensity: (density: Density) => void;
   showSpark: boolean;
   setShowSpark: (showSpark: boolean) => void;
-  selected: number;
   onRefresh: () => void;
 }) {
   function toggleStatus(value: FleetStatus) {
@@ -840,7 +838,6 @@ function Toolbar({
         ))}
       </div>
       <div className="spacer" />
-      {selected > 0 ? <span className="selection-count">{selected} selected</span> : null}
       <div className="seg">
         {(["comfy", "compact", "ultra"] as Density[]).map((value) => (
           <button key={value} className={density === value ? "on" : ""} onClick={() => setDensity(value)}>
@@ -862,8 +859,6 @@ function HostTable({
   setSort,
   selectedId,
   setSelectedId,
-  bulk,
-  setBulk,
 }: {
   groups: Array<{ key: string; label: string; items: NodeView[] }>;
   groupBy: GroupBy;
@@ -872,11 +867,8 @@ function HostTable({
   setSort: (sort: { key: SortKey; dir: "asc" | "desc" }) => void;
   selectedId: string | null;
   setSelectedId: (id: string) => void;
-  bulk: Set<string>;
-  setBulk: (next: Set<string>) => void;
 }) {
-  const columns: Array<{ key: SortKey | "sel" | "tags"; label: string; sortable?: boolean; align?: "right" }> = [
-    { key: "sel", label: "", sortable: false },
+  const columns: Array<{ key: SortKey | "tags"; label: string; sortable?: boolean; align?: "right" }> = [
     { key: "status", label: "Status" },
     { key: "hostname", label: "Host" },
     { key: "publicIp", label: "Public IP" },
@@ -891,8 +883,8 @@ function HostTable({
     { key: "lastSeenSort", label: "Seen" },
   ];
 
-  function clickSort(key: SortKey | "sel" | "tags", sortable?: boolean) {
-    if (sortable === false || key === "sel" || key === "tags") {
+  function clickSort(key: SortKey | "tags", sortable?: boolean) {
+    if (sortable === false || key === "tags") {
       return;
     }
     setSort(sort.key === key ? { key, dir: sort.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" });
@@ -912,15 +904,7 @@ function HostTable({
                 style={{ textAlign: column.align || "left" }}
                 onClick={() => clickSort(column.key, column.sortable)}
               >
-                {column.key === "sel" ? (
-                  <input
-                    type="checkbox"
-                    checked={allRows.length > 0 && allRows.every((node) => bulk.has(node.id))}
-                    onChange={(event) => setBulk(event.target.checked ? new Set(allRows.map((node) => node.id)) : new Set())}
-                  />
-                ) : (
-                  <>{column.label}<span className="arr">{sort.key === column.key ? (sort.dir === "asc" ? "▲" : "▼") : ""}</span></>
-                )}
+                {column.label}<span className="arr">{sort.key === column.key ? (sort.dir === "asc" ? "▲" : "▼") : ""}</span>
               </th>
             ))}
           </tr>
@@ -935,8 +919,6 @@ function HostTable({
               showSpark={showSpark}
               selectedId={selectedId}
               setSelectedId={setSelectedId}
-              bulk={bulk}
-              setBulk={setBulk}
             />
           ))}
           {allRows.length === 0 ? (
@@ -955,8 +937,6 @@ function MemoGroupRows({
   showSpark,
   selectedId,
   setSelectedId,
-  bulk,
-  setBulk,
 }: {
   group: { key: string; label: string; items: NodeView[] };
   groupBy: GroupBy;
@@ -964,8 +944,6 @@ function MemoGroupRows({
   showSpark: boolean;
   selectedId: string | null;
   setSelectedId: (id: string) => void;
-  bulk: Set<string>;
-  setBulk: (next: Set<string>) => void;
 }) {
   return (
     <>
@@ -983,21 +961,6 @@ function MemoGroupRows({
         const tone = statusTone(node.status);
         return (
           <tr key={node.id} className={selectedId === node.id ? "selected" : ""} onClick={() => setSelectedId(node.id)}>
-            <td onClick={(event) => event.stopPropagation()}>
-              <input
-                type="checkbox"
-                checked={bulk.has(node.id)}
-                onChange={() => {
-                  const next = new Set(bulk);
-                  if (next.has(node.id)) {
-                    next.delete(node.id);
-                  } else {
-                    next.add(node.id);
-                  }
-                  setBulk(next);
-                }}
-              />
-            </td>
             <td><StatusCell status={node.status} /></td>
             <td>
               <div className="host-cell">
@@ -1341,7 +1304,6 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
   const [density, setDensity] = useState<Density>("comfy");
   const [showSpark, setShowSpark] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [bulk, setBulk] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "usedPercent", dir: "desc" });
 
   async function loadHosts() {
@@ -1531,7 +1493,6 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
               setDensity={setDensity}
               showSpark={showSpark}
               setShowSpark={setShowSpark}
-              selected={bulk.size}
               onRefresh={loadHosts}
             />
             {notice ? <div className={`notice page-notice ${notice.type}`}>{notice.message}</div> : null}
@@ -1546,8 +1507,6 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
                 setSort={setSort}
                 selectedId={selectedId}
                 setSelectedId={setSelectedId}
-                bulk={bulk}
-                setBulk={setBulk}
               />
             ) : null}
           </>
