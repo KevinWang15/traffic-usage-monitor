@@ -1,13 +1,13 @@
 # Traffic Usage Monitor
 
-A central server + Linux host agent application bootstrapped from `KevinWang15/bootstrap-new-app`.
+A central server + Linux host agent application for monitoring per-node traffic usage and allowance.
 
-The project keeps the same scaffold shape:
+Repository layout:
 
 - `client`: Vite + React + TypeScript + Tailwind dashboard
 - `server`: Node.js + Express + TypeScript + Prisma central API
 - `shared`: frontend/backend shared constants and DTO types
-- `agent`: dumb Linux shell agent installed by command from the dashboard
+- `agent`: lightweight Linux shell agent installed by command from the dashboard
 - `run.sh`: local development launcher
 - `k3s/Dockerfile.multistage`: production container build
 
@@ -16,10 +16,10 @@ The project keeps the same scaffold shape:
 - Users can sign up, log in, and obtain a Linux install command tied to their account join token.
 - New accounts must verify their email address before logging in.
 - Users can request password reset links by email when they forget their password.
-- Hosts run a dumb Linux-only agent that reads `/proc/net/dev` counters, like vnStat-style interface accounting, and reports raw totals to the central server.
+- Hosts run a lightweight Linux-only agent that reads `/proc/net/dev` counters, like vnStat-style interface accounting, and reports raw totals to the central server.
 - The central server owns traffic allowance, reset cycle, metering mode, manual corrections, and alert policy.
 - Per-host allowance, reset period/date, metering type, alert threshold override, and agent poll interval are configurable centrally.
-- The server records the public IP it observes for each host during join and report requests, and can auto-detect country from a local MaxMind database.
+- The server stores each host's agent-reported public IP during join/report and can auto-detect country from a local MaxMind database.
 - Users can manually correct remaining traffic for a host.
 - Reset checks run every minute. For each host, the server normalizes the current UTC time to the configured cycle start and stores that cycle identifier in the database to avoid duplicate resets.
 - Alerts are emailed to the account email address when remaining traffic falls below the threshold. Alerts are throttled per host to at most one email every 3 hours.
@@ -42,7 +42,7 @@ The project keeps the same scaffold shape:
    cp .env.sample .env
    ```
 
-   Required values:
+   Key values:
 
    - `DATABASE_URL`: MySQL URL for Prisma
    - `JWT_SECRET`: long random secret
@@ -50,7 +50,7 @@ The project keeps the same scaffold shape:
    - `TRUST_PROXY`: optional Express trust proxy setting. Leave `false` for direct connections; set a hop count or trusted proxy subnet when the app is behind a reverse proxy and should use forwarded client IP headers.
    - `GEOIP_MMDB_PATH`: optional path to a local MaxMind GeoLite2/GeoIP2 Country `.mmdb` file. When unset, the server uses the bundled `server/geoip/GeoLite2-Country.mmdb`.
    - `LOG_AGENT_IP_DEBUG`: optional `true`/`false` request IP diagnostics for agent join/report.
-   - `ENGAGE_LAB_USERNAME`, `ENGAGE_LAB_API_KEY`, `ENGAGE_LAB_FROM_EMAIL`: required to send alert email.
+   - `ENGAGE_LAB_USERNAME`, `ENGAGE_LAB_API_KEY`, `ENGAGE_LAB_FROM_EMAIL`: required for verification, password reset, test, traffic alert, and missing-node emails.
 
 3. Generate Prisma client and create tables:
 
@@ -117,11 +117,10 @@ Supported metering types:
 ## Production notes
 
 - Put the server behind HTTPS before installing agents over the network.
-- Set `PUBLIC_URL` to the external HTTPS origin so dashboard install commands point at the reachable central server.
+- Set `PUBLIC_URL` to the external HTTPS origin so dashboard install commands, verification links, and password reset links point at the reachable central server.
 - Public IP tracking comes from the agent's self-reported public IP on join/report. The agent queries `ifconfig.info` first, then falls back to other public-IP endpoints. This keeps the dashboard accurate when agents reach the server through a relay. `TRUST_PROXY` only affects diagnostic request-IP logging and unrelated Express behavior.
 - Country auto-detection uses the bundled MaxMind Country `.mmdb` file. Set `GEOIP_MMDB_PATH` only if you want to override it with another database. In k3s, `DEPLOYMENT_GEOIP_MMDB_HOST_PATH` can mount a host-side replacement at that container path. Hosts also support a manual country override for ranges where databases disagree with the observed service location.
 - Use a strong `JWT_SECRET`.
-- Set `PUBLIC_URL` to the external URL users can open so verification and password reset links are valid.
 - Rotate the account join token if it leaks. Existing agents keep working because they use per-host agent keys after joining.
 - Run Prisma migrations during deploy before starting the application.
 
@@ -143,6 +142,9 @@ Do not rerun the full install command unless the node should rejoin. The next re
 
 ## API sketch
 
+- `GET /api/health`
+- `GET /api/config`
+- `GET /api/metrics`
 - `POST /api/auth/signup`
 - `POST /api/auth/verify-email`
 - `POST /api/auth/verification-email/resend`
@@ -155,9 +157,12 @@ Do not rerun the full install command unless the node should rejoin. The next re
 - `POST /api/account/join-token/rotate`
 - `POST /api/account/test-email`
 - `GET /api/hosts`
+- `GET /api/hosts/:id`
 - `PATCH /api/hosts/:id`
+- `DELETE /api/hosts/:id`
 - `POST /api/hosts/:id/correct-remaining`
 - `POST /api/hosts/:id/suppress-traffic-alert`
+- `GET /api/hosts/:id/samples`
 - `POST /api/agent/join`
 - `POST /api/agent/report`
 - `GET /api/agent/install.sh`

@@ -94,7 +94,6 @@ chmod 600 "$CONFIG_FILE"
 cat > "$SERVICE_FILE" <<'SERVICE'
 [Unit]
 Description=Traffic Usage Monitor Agent
-Documentation=https://github.com/KevinWang15/bootstrap-new-app
 After=network-online.target
 Wants=network-online.target
 
