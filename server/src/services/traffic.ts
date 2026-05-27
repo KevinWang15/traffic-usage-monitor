@@ -18,6 +18,7 @@ type AgentReportPayload = {
     hostname?: unknown;
     machineId?: unknown;
     bootId?: unknown;
+    publicIp?: unknown;
   };
   interfaces?: unknown;
 };

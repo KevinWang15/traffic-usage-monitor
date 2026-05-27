@@ -118,7 +118,7 @@ Supported metering types:
 
 - Put the server behind HTTPS before installing agents over the network.
 - Set `PUBLIC_URL` to the external HTTPS origin so dashboard install commands point at the reachable central server.
-- Public IP tracking is collected by the central server from the request source on agent join/report, not from agent self-reporting. If the app is behind a reverse proxy, set `TRUST_PROXY` to the trusted hop count or proxy subnet. The k3s deploy script defaults `TRUST_PROXY=1` for an Apache/host-proxy-to-NodePort setup. If exposed directly through Kubernetes NodePort, keep the service `externalTrafficPolicy` set to `Local` so Kubernetes preserves the original client source IP and set `TRUST_PROXY=false` unless only trusted proxies can reach the NodePort.
+- Public IP tracking comes from the agent's self-reported public IP on join/report. The agent queries `ifconfig.info` first, then falls back to other public-IP endpoints. This keeps the dashboard accurate when agents reach the server through a relay. `TRUST_PROXY` only affects diagnostic request-IP logging and unrelated Express behavior.
 - Country auto-detection uses the bundled MaxMind Country `.mmdb` file. Set `GEOIP_MMDB_PATH` only if you want to override it with another database. In k3s, `DEPLOYMENT_GEOIP_MMDB_HOST_PATH` can mount a host-side replacement at that container path. Hosts also support a manual country override for ranges where databases disagree with the observed service location.
 - Use a strong `JWT_SECRET`.
 - Set `PUBLIC_URL` to the external URL users can open so verification and password reset links are valid.

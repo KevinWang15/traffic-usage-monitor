@@ -1,7 +1,11 @@
 import { isIP } from "node:net";
 import type { Request } from "express";
 
-function normalizeIpAddress(value: string | undefined): string | null {
+export function normalizeIpAddress(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
   if (!value) {
     return null;
   }

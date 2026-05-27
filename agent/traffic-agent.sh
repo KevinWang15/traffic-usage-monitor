@@ -41,8 +41,36 @@ path.write_text("\n".join(lines) + "\n")
 PY
 }
 
+valid_ip() {
+  python3 - "$1" <<'PY'
+import ipaddress
+import sys
+
+try:
+    ipaddress.ip_address(sys.argv[1].strip())
+except ValueError:
+    sys.exit(1)
+PY
+}
+
+detect_public_ip() {
+  local endpoint value
+  for endpoint in \
+    "https://ifconfig.info" \
+    "https://api.ipify.org" \
+    "https://ifconfig.me/ip" \
+    "https://icanhazip.com"; do
+    value="$(curl -fsS --max-time 5 "$endpoint" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [ -n "$value" ] && valid_ip "$value"; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done
+  return 1
+}
+
 build_join_payload() {
-  HOST_ALIAS="${HOST_ALIAS:-}" AGENT_VERSION="$AGENT_VERSION" python3 - <<'PY'
+  HOST_ALIAS="${HOST_ALIAS:-}" AGENT_VERSION="$AGENT_VERSION" PUBLIC_IP="${PUBLIC_IP:-}" python3 - <<'PY'
 import json
 import os
 import platform
@@ -78,6 +106,7 @@ payload = {
     "name": os.environ.get("HOST_ALIAS") or None,
     "machineId": machine_id,
     "bootId": boot_id,
+    "publicIp": os.environ.get("PUBLIC_IP") or None,
     "kernel": platform.release(),
     "agentVersion": os.environ.get("AGENT_VERSION"),
     "interfaces": interfaces,
@@ -98,8 +127,9 @@ join_agent() {
     exit 1
   fi
 
-  local payload response agent_id agent_key poll_interval
-  payload="$(build_join_payload)"
+  local payload response agent_id agent_key poll_interval public_ip
+  public_ip="$(detect_public_ip || true)"
+  payload="$(PUBLIC_IP="$public_ip" build_join_payload)"
   response="$(curl -fsS -X POST "$SERVER_URL/api/agent/join" \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $JOIN_TOKEN" \
@@ -124,7 +154,7 @@ join_agent() {
 }
 
 build_report_payload() {
-  AGENT_VERSION="$AGENT_VERSION" python3 - <<'PY'
+  AGENT_VERSION="$AGENT_VERSION" PUBLIC_IP="${PUBLIC_IP:-}" python3 - <<'PY'
 import json
 import os
 import platform
@@ -167,6 +197,7 @@ payload = {
         "hostname": socket.gethostname(),
         "machineId": machine_id,
         "bootId": boot_id,
+        "publicIp": os.environ.get("PUBLIC_IP") or None,
         "kernel": platform.release(),
         "agentVersion": os.environ.get("AGENT_VERSION"),
     },
@@ -183,8 +214,9 @@ report_once() {
     load_config
   fi
 
-  local payload response poll_interval
-  payload="$(build_report_payload)"
+  local payload response poll_interval public_ip
+  public_ip="$(detect_public_ip || true)"
+  payload="$(PUBLIC_IP="$public_ip" build_report_payload)"
   response="$(curl -fsS -X POST "$SERVER_URL/api/agent/report" \
     -H 'Content-Type: application/json' \
     -H "X-Agent-Id: $AGENT_ID" \
