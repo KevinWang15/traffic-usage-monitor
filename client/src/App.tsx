@@ -1023,6 +1023,7 @@ function Inspector({
   const [notice, setNotice] = useState<Notice>(null);
   const [saving, setSaving] = useState(false);
   const [suppressing, setSuppressing] = useState(false);
+  const [suppressingMissing, setSuppressingMissing] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
@@ -1050,6 +1051,7 @@ function Inspector({
     setRemainingGiB(bytesToGiB(host.remainingBytes));
     setNotice(null);
     setSuppressing(false);
+    setSuppressingMissing(false);
     setDeleting(false);
   }, [node?.id]);
 
@@ -1115,6 +1117,19 @@ function Inspector({
     }
   }
 
+  async function suppressMissingAlert() {
+    setSuppressingMissing(true);
+    try {
+      const response = await api.suppressMissingAlert(node!.id);
+      onChanged(response.host);
+      onToast({ type: "ok", message: "Missing-node alerts ignored until the next reconnect." });
+    } catch (error) {
+      onToast({ type: "error", message: error instanceof Error ? error.message : "Failed to ignore missing alert" });
+    } finally {
+      setSuppressingMissing(false);
+    }
+  }
+
   async function deleteNode() {
     const label = node!.title;
     if (
@@ -1141,6 +1156,7 @@ function Inspector({
   const historyRows = samples.slice(0, 8);
   const isTrafficAlertStatus = node.status === "warning" || node.status === "critical" || node.status === "exceeded";
   const trafficAlertSuppressed = isTrafficAlertStatus && node.host.trafficAlertSuppressed;
+  const missingAlertSuppressed = node.status === "missing" && Boolean(node.host.missingAlertSuppressedAt);
   const suppressionTarget =
     node.host.trafficAlertSuppressedUntilUsedPercent === null
       ? null
@@ -1263,9 +1279,11 @@ function Inspector({
               {node.status === "active" ? (
                 <div className="empty small-empty">No active alerts.</div>
               ) : (
-                <div className={`alert-card${trafficAlertSuppressed ? " muted" : ""}`}>
+                <div className={`alert-card${trafficAlertSuppressed || missingAlertSuppressed ? " muted" : ""}`}>
                   <strong>
-                    {trafficAlertSuppressed
+                    {missingAlertSuppressed
+                      ? "Missing alert ignored"
+                      : trafficAlertSuppressed
                       ? "Traffic alert ignored"
                       : node.status === "missing"
                       ? "Node missing"
@@ -1277,7 +1295,9 @@ function Inspector({
                   </strong>
                   <span>
                     {node.status === "missing"
-                      ? `Last contact was ${relTime(node.host.lastSeenAt || node.host.lastReportAt)}. Missing-node emails are sent separately and throttled to one every 3 hours.`
+                      ? missingAlertSuppressed
+                        ? "Missing-node email alerts are ignored until the next successful agent contact."
+                        : `Last contact was ${relTime(node.host.lastSeenAt || node.host.lastReportAt)}. Missing-node emails are sent separately and throttled to one every 3 hours.`
                       : trafficAlertSuppressed
                         ? `Traffic email alerts are ignored until usage reaches ${suppressionTarget || "the next 1% step"} or the next reset.`
                       : `Remaining traffic is ${node.remainingPercent === null ? "unknown" : `${node.remainingPercent.toFixed(2)}%`} with a ${node.host.alertThresholdPercent}% alert threshold.`}
@@ -1290,6 +1310,18 @@ function Inspector({
                         <button className="btn" onClick={suppressTrafficAlert} disabled={suppressing}>
                           <BellOff size={14} />
                           {suppressing ? "Updating..." : "I have switched traffic away"}
+                        </button>
+                      )}
+                    </div>
+                  ) : null}
+                  {node.status === "missing" ? (
+                    <div className="button-row alert-actions">
+                      {missingAlertSuppressed ? (
+                        <span className="chip static"><BellOff size={13} /> Ignored until reconnect</span>
+                      ) : (
+                        <button className="btn" onClick={suppressMissingAlert} disabled={suppressingMissing}>
+                          <BellOff size={14} />
+                          {suppressingMissing ? "Updating..." : "Mute until reconnect"}
                         </button>
                       )}
                     </div>

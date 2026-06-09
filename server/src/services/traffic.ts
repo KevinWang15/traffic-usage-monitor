@@ -169,6 +169,7 @@ export async function processAgentReport(hostId: string, payload: AgentReportPay
         lastSeenAt: new Date(),
         lastReportAt: observedAt,
         status: "ACTIVE",
+        missingAlertSuppressedAt: null,
       },
     });
   });

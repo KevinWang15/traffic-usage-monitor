@@ -36,6 +36,7 @@ export type HostDto = {
   trafficAlertSuppressedAt: string | null;
   trafficAlertSuppressedUntilUsedBytes: string | null;
   trafficAlertSuppressedUntilUsedPercent: number | null;
+  missingAlertSuppressedAt: string | null;
   pollIntervalSeconds: number;
   createdAt: string;
 };

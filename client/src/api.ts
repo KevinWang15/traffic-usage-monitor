@@ -129,6 +129,9 @@ export const api = {
   suppressTrafficAlert(id: string) {
     return apiFetch<{ host: HostDto }>(`/api/hosts/${id}/suppress-traffic-alert`, { method: "POST" });
   },
+  suppressMissingAlert(id: string) {
+    return apiFetch<{ host: HostDto }>(`/api/hosts/${id}/suppress-missing-alert`, { method: "POST" });
+  },
   exportConfig() {
     return apiFetch<ConfigExportPayload>("/api/config/export");
   },

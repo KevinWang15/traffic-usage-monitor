@@ -107,6 +107,10 @@ export async function maybeSendTrafficAlert(host: HostWithUser): Promise<void> {
 }
 
 export async function maybeSendMissingHostAlert(host: HostWithUser, now = new Date()): Promise<void> {
+  if (host.missingAlertSuppressedAt) {
+    return;
+  }
+
   const lastContactAt = host.lastSeenAt ?? host.lastReportAt ?? host.joinedAt ?? host.createdAt;
   const recentMissingAlert = await prisma.alertEvent.findFirst({
     where: {

@@ -43,6 +43,7 @@ type ImportedHost = {
   alertThresholdBasisPts: number | null;
   trafficAlertSuppressedAt: Date | null;
   trafficAlertSuppressedUntilUsedBytes: bigint | null;
+  missingAlertSuppressedAt: Date | null;
   pollIntervalSeconds: number;
   joinedAt: Date | null;
   lastSeenAt: Date | null;
@@ -159,6 +160,7 @@ function parseHost(entry: unknown): ImportedHost {
       h.trafficAlertSuppressedUntilUsedBytes,
       "host.trafficAlertSuppressedUntilUsedBytes",
     ),
+    missingAlertSuppressedAt: asDateOrNull(h.missingAlertSuppressedAt, "host.missingAlertSuppressedAt"),
     pollIntervalSeconds: asInteger(h.pollIntervalSeconds, "host.pollIntervalSeconds", 10, 3600),
     joinedAt: asDateOrNull(h.joinedAt, "host.joinedAt"),
     lastSeenAt: asDateOrNull(h.lastSeenAt, "host.lastSeenAt"),
@@ -264,6 +266,7 @@ router.get(
             alertThresholdBasisPts: true,
             trafficAlertSuppressedAt: true,
             trafficAlertSuppressedUntilUsedBytes: true,
+            missingAlertSuppressedAt: true,
             pollIntervalSeconds: true,
             joinedAt: true,
             lastSeenAt: true,
@@ -370,6 +373,7 @@ router.post(
           alertThresholdBasisPts: host.alertThresholdBasisPts,
           trafficAlertSuppressedAt: host.trafficAlertSuppressedAt,
           trafficAlertSuppressedUntilUsedBytes: host.trafficAlertSuppressedUntilUsedBytes,
+          missingAlertSuppressedAt: host.missingAlertSuppressedAt,
           pollIntervalSeconds: host.pollIntervalSeconds,
           lastSeenAt: host.lastSeenAt,
           lastReportAt: host.lastReportAt,

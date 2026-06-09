@@ -99,6 +99,7 @@ router.post(
         lastBootId: bootId,
         agentKeyHash: hashSecret(agentKey),
         status: "ACTIVE",
+        missingAlertSuppressedAt: null,
         lastSeenAt: now,
       },
     });

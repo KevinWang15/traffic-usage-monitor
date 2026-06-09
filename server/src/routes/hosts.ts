@@ -88,6 +88,7 @@ function hostDto(host: Host, user: User, sampleMetrics: HostSampleMetrics = EMPT
       host.trafficAlertSuppressedUntilUsedBytes,
       host.trafficAllowanceBytes,
     ),
+    missingAlertSuppressedAt: host.missingAlertSuppressedAt,
     pollIntervalSeconds: host.pollIntervalSeconds,
     createdAt: host.createdAt,
   };
@@ -366,6 +367,24 @@ router.post(
         trafficAlertSuppressedAt: new Date(),
         trafficAlertSuppressedUntilUsedBytes: nextTrafficAlertSuppressionLimit(current),
       },
+    });
+
+    const sampleMetrics = await buildSampleMetrics([host.id]);
+    sendJson(res, { host: hostDto(host, req.user!, sampleMetrics.get(host.id)) });
+  }),
+);
+
+router.post(
+  "/:id/suppress-missing-alert",
+  asyncHandler(async (req, res) => {
+    const current = await requireOwnedHost(req.user!.id, requireRouteParam(req.params.id, "id"));
+    if (current.status !== "STALE") {
+      throw new HttpError(400, "host must be missing to suppress missing-node alerts");
+    }
+
+    const host = await prisma.host.update({
+      where: { id: current.id },
+      data: { missingAlertSuppressedAt: new Date() },
     });
 
     const sampleMetrics = await buildSampleMetrics([host.id]);

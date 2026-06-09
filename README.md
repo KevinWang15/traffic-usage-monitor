@@ -162,6 +162,7 @@ Do not rerun the full install command unless the node should rejoin. The next re
 - `DELETE /api/hosts/:id`
 - `POST /api/hosts/:id/correct-remaining`
 - `POST /api/hosts/:id/suppress-traffic-alert`
+- `POST /api/hosts/:id/suppress-missing-alert`
 - `GET /api/hosts/:id/samples`
 - `POST /api/agent/join`
 - `POST /api/agent/report`

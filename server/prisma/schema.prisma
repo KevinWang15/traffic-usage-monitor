@@ -76,6 +76,7 @@ model Host {
   lastAlertCycleId           String?
   trafficAlertSuppressedAt   DateTime?
   trafficAlertSuppressedUntilUsedBytes BigInt?
+  missingAlertSuppressedAt   DateTime?
   pollIntervalSeconds        Int                   @default(60)
   lastSeenAt                 DateTime?
   lastReportAt               DateTime?
