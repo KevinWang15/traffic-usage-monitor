@@ -245,13 +245,18 @@ table.nodes { width: 100%; border-collapse: collapse; font-size: 12px; }
 .status-cell.crit, .crit-text { color: var(--crit) !important; }
 .status-cell.off, .off-text { color: var(--text-3) !important; }
 
-.usage { display: flex; align-items: center; min-width: 120px; }
-.usage-bar { position: relative; flex: 1; height: 6px; overflow: hidden; border: 1px solid var(--line-soft); border-radius: 2px; background: var(--bg-2); }
+.usage { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 120px; }
+.progress-track { position: relative; width: 100%; overflow: visible; border-radius: 2px; background: var(--bg-2); }
+.progress-track::after { position: absolute; z-index: 3; bottom: calc(100% + 6px); left: 50%; content: attr(data-tip); pointer-events: none; transform: translateX(-50%); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; background: var(--bg); color: var(--text); font-size: 10px; line-height: 1; white-space: nowrap; opacity: 0; box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28); }
+.progress-track:hover::after { opacity: 1; }
+.usage-bar { height: 6px; border: 1px solid var(--line-soft); }
 .usage-bar .fill { height: 100%; border-radius: 2px; }
 .usage-bar .fill.ok { background: var(--ok); }
 .usage-bar .fill.warn { background: var(--warn); }
 .usage-bar .fill.crit { background: var(--crit); }
 .usage-bar .fill.off { background: var(--text-3); }
+.cycle-bar { height: 3px; background: var(--line-soft); }
+.cycle-bar .fill { height: 100%; border-radius: 2px; background: var(--text-2); opacity: 0.82; }
 .muted-inline { color: var(--text-3); font-size: 11px; }
 
 .spark { display: inline-block; vertical-align: middle; }

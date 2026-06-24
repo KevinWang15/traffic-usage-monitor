@@ -54,6 +54,7 @@ type NodeView = {
   trafficAllowanceBytes: number;
   usedPercent: number | null;
   remainingPercent: number | null;
+  cycleElapsedPercent: number | null;
   last24hBytes: number;
   recentRateMbps: number;
   spark: number[];
@@ -83,6 +84,118 @@ function percentUsed(host: HostDto): number | null {
   }
   const allowance = asNumberBytes(host.trafficAllowanceBytes);
   return allowance > 0 ? Math.min(100, (asNumberBytes(host.usedBytes) / allowance) * 100) : null;
+}
+
+function daysInMonth(year: number, monthZeroBased: number): number {
+  return new Date(Date.UTC(year, monthZeroBased + 1, 0)).getUTCDate();
+}
+
+function atUtc(year: number, monthZeroBased: number, day: number, hour: number, minute: number): Date {
+  return new Date(Date.UTC(year, monthZeroBased, day, hour, minute, 0, 0));
+}
+
+function clampDay(year: number, monthZeroBased: number, requestedDay: number): number {
+  return Math.min(Math.max(requestedDay, 1), daysInMonth(year, monthZeroBased));
+}
+
+function previousMonth(year: number, monthZeroBased: number): { year: number; month: number } {
+  return monthZeroBased === 0 ? { year: year - 1, month: 11 } : { year, month: monthZeroBased - 1 };
+}
+
+function cycleStartFor(now: Date, host: HostDto): Date | null {
+  const { resetHourUtc, resetMinuteUtc } = host;
+  if (!Number.isFinite(resetHourUtc) || !Number.isFinite(resetMinuteUtc)) {
+    return null;
+  }
+
+  if (host.resetPeriod === "DAILY") {
+    let start = atUtc(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), resetHourUtc, resetMinuteUtc);
+    if (now < start) {
+      start = new Date(start.getTime() - 24 * 60 * 60 * 1000);
+    }
+    return start;
+  }
+
+  if (host.resetPeriod === "WEEKLY") {
+    const resetDayOfWeek = ((host.resetDayOfWeek % 7) + 7) % 7;
+    const diffDays = (now.getUTCDay() - resetDayOfWeek + 7) % 7;
+    let start = atUtc(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diffDays, resetHourUtc, resetMinuteUtc);
+    if (now < start) {
+      start = new Date(start.getTime() - 7 * 24 * 60 * 60 * 1000);
+    }
+    return start;
+  }
+
+  if (host.resetPeriod === "MONTHLY") {
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth();
+    let start = atUtc(year, month, clampDay(year, month, host.resetDayOfMonth), resetHourUtc, resetMinuteUtc);
+    if (now < start) {
+      const previous = previousMonth(year, month);
+      start = atUtc(
+        previous.year,
+        previous.month,
+        clampDay(previous.year, previous.month, host.resetDayOfMonth),
+        resetHourUtc,
+        resetMinuteUtc,
+      );
+    }
+    return start;
+  }
+
+  if (host.resetPeriod === "YEARLY") {
+    const resetMonth = Math.min(Math.max(host.resetMonth, 1), 12) - 1;
+    const year = now.getUTCFullYear();
+    let start = atUtc(year, resetMonth, clampDay(year, resetMonth, host.resetDayOfMonth), resetHourUtc, resetMinuteUtc);
+    if (now < start) {
+      const previousYear = year - 1;
+      start = atUtc(
+        previousYear,
+        resetMonth,
+        clampDay(previousYear, resetMonth, host.resetDayOfMonth),
+        resetHourUtc,
+        resetMinuteUtc,
+      );
+    }
+    return start;
+  }
+
+  return null;
+}
+
+function nextCycleStart(start: Date, host: HostDto): Date | null {
+  if (host.resetPeriod === "DAILY") {
+    return new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  }
+  if (host.resetPeriod === "WEEKLY") {
+    return new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+  }
+  if (host.resetPeriod === "MONTHLY") {
+    const nextMonth = start.getUTCMonth() + 1;
+    const year = start.getUTCFullYear() + Math.floor(nextMonth / 12);
+    const month = nextMonth % 12;
+    return atUtc(year, month, clampDay(year, month, host.resetDayOfMonth), host.resetHourUtc, host.resetMinuteUtc);
+  }
+  if (host.resetPeriod === "YEARLY") {
+    const year = start.getUTCFullYear() + 1;
+    const month = Math.min(Math.max(host.resetMonth, 1), 12) - 1;
+    return atUtc(year, month, clampDay(year, month, host.resetDayOfMonth), host.resetHourUtc, host.resetMinuteUtc);
+  }
+  return null;
+}
+
+function cycleElapsedPercent(host: HostDto, now = new Date()): number | null {
+  const start = cycleStartFor(now, host);
+  if (!start) {
+    return null;
+  }
+  const end = nextCycleStart(start, host);
+  if (!end || end <= start) {
+    return null;
+  }
+  const elapsed = now.getTime() - start.getTime();
+  const duration = end.getTime() - start.getTime();
+  return Math.max(0, Math.min(100, (elapsed / duration) * 100));
 }
 
 function deriveStatus(host: HostDto): FleetStatus {
@@ -195,6 +308,7 @@ function toNodeView(host: HostDto): NodeView {
     trafficAllowanceBytes: asNumberBytes(host.trafficAllowanceBytes),
     usedPercent: used,
     remainingPercent: host.remainingPercent,
+    cycleElapsedPercent: cycleElapsedPercent(host),
     last24hBytes: (host.trafficSpark || []).reduce((sum, bytes) => sum + bytes, 0),
     recentRateMbps: host.recentRateMbps || 0,
     spark: host.trafficSpark?.length ? host.trafficSpark : fallbackSpark(host.id, used),
@@ -316,11 +430,17 @@ function UsageBar({ node }: { node: NodeView }) {
     return <span className="muted-inline">No allowance</span>;
   }
   const tone = statusTone(node.status);
+  const cyclePercent = node.cycleElapsedPercent;
   return (
     <div className="usage">
-      <div className="usage-bar">
+      <div className="usage-bar progress-track" data-tip={`Usage ${node.usedPercent.toFixed(1)}%`}>
         <div className={`fill ${tone}`} style={{ width: `${Math.min(100, node.usedPercent).toFixed(1)}%` }} />
       </div>
+      {cyclePercent !== null ? (
+        <div className="cycle-bar progress-track" data-tip={`Reset cycle ${cyclePercent.toFixed(1)}%`}>
+          <div className="fill" style={{ width: `${cyclePercent.toFixed(1)}%` }} />
+        </div>
+      ) : null}
     </div>
   );
 }
