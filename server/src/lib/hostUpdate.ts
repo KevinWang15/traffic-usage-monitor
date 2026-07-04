@@ -1,7 +1,25 @@
+import { ResetPeriod } from "@prisma/client";
+import { normalizeCycleStart } from "./cycles";
+
 export type AllowanceState = {
   trafficAllowanceBytes: bigint;
   usedBytes: bigint;
   remainingBytes: bigint;
+};
+
+export type ResetScheduleState = {
+  resetPeriod: ResetPeriod;
+  resetDayOfMonth: number;
+  resetDayOfWeek: number;
+  resetMonth: number;
+  resetHourUtc: number;
+  resetMinuteUtc: number;
+};
+
+export type CycleAlignment = {
+  currentCycleId: string;
+  currentCycleStartedAt: Date;
+  lastResetCycleId: string;
 };
 
 export function remainingAfterAllowanceUpdate(current: AllowanceState, nextAllowance: bigint): bigint {
@@ -22,4 +40,29 @@ export function remainingAfterHostUpdate(
     return remainingAfterAllowanceUpdate(current, update.trafficAllowanceBytes);
   }
   return undefined;
+}
+
+export function cycleAlignmentAfterResetScheduleUpdate(
+  current: ResetScheduleState,
+  update: Partial<ResetScheduleState>,
+  now = new Date(),
+): CycleAlignment | undefined {
+  const next = {
+    ...current,
+    ...update,
+  };
+  const changed = Object.entries(update).some(([key, value]) => {
+    return value !== current[key as keyof ResetScheduleState];
+  });
+
+  if (!changed) {
+    return undefined;
+  }
+
+  const cycle = normalizeCycleStart(now, next);
+  return {
+    currentCycleId: cycle.id,
+    currentCycleStartedAt: cycle.start,
+    lastResetCycleId: cycle.id,
+  };
 }

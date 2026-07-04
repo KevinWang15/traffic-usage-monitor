@@ -19,21 +19,63 @@ async function pingHealthcheck(): Promise<void> {
   }
 }
 
-export async function ensureResetForHost(host: Host, now = new Date()): Promise<Host> {
+type ResetStore = Pick<typeof prisma, "$transaction">;
+
+export async function ensureResetForHost(host: Host, now = new Date(), store: ResetStore = prisma): Promise<Host> {
+  if (host.status === "DISABLED") {
+    return host;
+  }
+
   const cycle = normalizeCycleStart(now, host);
   if (host.lastResetCycleId === cycle.id) {
     return host;
   }
 
-  return prisma.$transaction(async (tx) => {
+  return store.$transaction(async (tx) => {
     const current = await tx.host.findUnique({ where: { id: host.id } });
     if (!current) {
       throw new Error(`Host ${host.id} disappeared before reset`);
+    }
+    if (current.status === "DISABLED") {
+      return current;
     }
 
     const currentCycle = normalizeCycleStart(now, current);
     if (current.lastResetCycleId === currentCycle.id) {
       return current;
+    }
+
+    const reset = await tx.host.updateMany({
+      where: {
+        id: current.id,
+        status: { not: "DISABLED" },
+        trafficAllowanceBytes: current.trafficAllowanceBytes,
+        resetPeriod: current.resetPeriod,
+        resetDayOfMonth: current.resetDayOfMonth,
+        resetDayOfWeek: current.resetDayOfWeek,
+        resetMonth: current.resetMonth,
+        resetHourUtc: current.resetHourUtc,
+        resetMinuteUtc: current.resetMinuteUtc,
+        lastResetCycleId: current.lastResetCycleId,
+      },
+      data: {
+        usedBytes: 0n,
+        remainingBytes: current.trafficAllowanceBytes,
+        currentCycleId: currentCycle.id,
+        currentCycleStartedAt: currentCycle.start,
+        lastResetCycleId: currentCycle.id,
+        lastAlertCycleId: null,
+        trafficAlertSuppressedAt: null,
+        trafficAlertSuppressedUntilUsedBytes: null,
+      },
+    });
+
+    if (reset.count === 0) {
+      const refreshed = await tx.host.findUnique({ where: { id: current.id } });
+      if (!refreshed) {
+        throw new Error(`Host ${host.id} disappeared before reset`);
+      }
+      return refreshed;
     }
 
     await tx.resetEvent.upsert({
@@ -49,19 +91,11 @@ export async function ensureResetForHost(host: Host, now = new Date()): Promise<
       update: {},
     });
 
-    return tx.host.update({
-      where: { id: current.id },
-      data: {
-        usedBytes: 0n,
-        remainingBytes: current.trafficAllowanceBytes,
-        currentCycleId: currentCycle.id,
-        currentCycleStartedAt: currentCycle.start,
-        lastResetCycleId: currentCycle.id,
-        lastAlertCycleId: null,
-        trafficAlertSuppressedAt: null,
-        trafficAlertSuppressedUntilUsedBytes: null,
-      },
-    });
+    const updated = await tx.host.findUnique({ where: { id: current.id } });
+    if (!updated) {
+      throw new Error(`Host ${host.id} disappeared before reset`);
+    }
+    return updated;
   });
 }
 

@@ -1,6 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { remainingAfterAllowanceUpdate, remainingAfterHostUpdate } from "../src/lib/hostUpdate";
+import { ResetPeriod } from "@prisma/client";
+import {
+  cycleAlignmentAfterResetScheduleUpdate,
+  remainingAfterAllowanceUpdate,
+  remainingAfterHostUpdate,
+} from "../src/lib/hostUpdate";
 
 describe("remainingAfterAllowanceUpdate", () => {
   it("preserves manually corrected remaining bytes when allowance is unchanged", () => {
@@ -75,5 +80,48 @@ describe("remainingAfterHostUpdate", () => {
     };
 
     assert.equal(remainingAfterHostUpdate(current, {}), undefined);
+  });
+});
+
+describe("cycleAlignmentAfterResetScheduleUpdate", () => {
+  const current = {
+    resetPeriod: ResetPeriod.MONTHLY,
+    resetDayOfMonth: 1,
+    resetDayOfWeek: 1,
+    resetMonth: 1,
+    resetHourUtc: 0,
+    resetMinuteUtc: 0,
+  };
+
+  it("does not re-anchor the cycle when submitted schedule fields are unchanged", () => {
+    assert.equal(
+      cycleAlignmentAfterResetScheduleUpdate(
+        current,
+        {
+          resetPeriod: ResetPeriod.MONTHLY,
+          resetDayOfMonth: 1,
+          resetDayOfWeek: 1,
+          resetMonth: 1,
+          resetHourUtc: 0,
+          resetMinuteUtc: 0,
+        },
+        new Date("2026-07-04T12:00:00.000Z"),
+      ),
+      undefined,
+    );
+  });
+
+  it("re-anchors the current cycle without resetting counters when the schedule changes", () => {
+    const alignment = cycleAlignmentAfterResetScheduleUpdate(
+      current,
+      { resetDayOfMonth: 15 },
+      new Date("2026-07-04T12:00:00.000Z"),
+    );
+
+    assert.deepEqual(alignment, {
+      currentCycleId: "MONTHLY:2026-06-15T00:00:00.000Z",
+      currentCycleStartedAt: new Date("2026-06-15T00:00:00.000Z"),
+      lastResetCycleId: "MONTHLY:2026-06-15T00:00:00.000Z",
+    });
   });
 });

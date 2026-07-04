@@ -3,7 +3,11 @@ import { Router } from "express";
 import prisma from "../prisma";
 import { parseBytes, percentBasisPointsToPercent, percentToBasisPoints, remainingPercent } from "../lib/bytes";
 import { validateResetConfig } from "../lib/cycles";
-import { remainingAfterHostUpdate } from "../lib/hostUpdate";
+import {
+  cycleAlignmentAfterResetScheduleUpdate,
+  remainingAfterHostUpdate,
+  type ResetScheduleState,
+} from "../lib/hostUpdate";
 import { asyncHandler, clampInteger, HttpError, optionalBodyString, sendJson } from "../lib/http";
 import {
   isTrafficAlertSuppressed,
@@ -209,6 +213,7 @@ router.patch(
     const current = await requireOwnedHost(req.user!.id, requireRouteParam(req.params.id, "id"));
     const data: Prisma.HostUpdateInput = {};
     const resetData: Record<string, number> = {};
+    const resetScheduleUpdate: Partial<ResetScheduleState> = {};
     let nextAllowance: bigint | undefined;
     let explicitRemainingBytes: bigint | undefined;
     let correctionReason: string | null = null;
@@ -244,31 +249,37 @@ router.patch(
         throw new HttpError(400, "resetPeriod is invalid");
       }
       data.resetPeriod = req.body.resetPeriod;
+      resetScheduleUpdate.resetPeriod = req.body.resetPeriod;
     }
     if (req.body.resetDayOfMonth !== undefined) {
       const value = clampInteger(req.body.resetDayOfMonth, "resetDayOfMonth", 1, 31);
       data.resetDayOfMonth = value;
       resetData.resetDayOfMonth = value;
+      resetScheduleUpdate.resetDayOfMonth = value;
     }
     if (req.body.resetDayOfWeek !== undefined) {
       const value = clampInteger(req.body.resetDayOfWeek, "resetDayOfWeek", 0, 6);
       data.resetDayOfWeek = value;
       resetData.resetDayOfWeek = value;
+      resetScheduleUpdate.resetDayOfWeek = value;
     }
     if (req.body.resetMonth !== undefined) {
       const value = clampInteger(req.body.resetMonth, "resetMonth", 1, 12);
       data.resetMonth = value;
       resetData.resetMonth = value;
+      resetScheduleUpdate.resetMonth = value;
     }
     if (req.body.resetHourUtc !== undefined) {
       const value = clampInteger(req.body.resetHourUtc, "resetHourUtc", 0, 23);
       data.resetHourUtc = value;
       resetData.resetHourUtc = value;
+      resetScheduleUpdate.resetHourUtc = value;
     }
     if (req.body.resetMinuteUtc !== undefined) {
       const value = clampInteger(req.body.resetMinuteUtc, "resetMinuteUtc", 0, 59);
       data.resetMinuteUtc = value;
       resetData.resetMinuteUtc = value;
+      resetScheduleUpdate.resetMinuteUtc = value;
     }
     if (req.body.alertThresholdPercent !== undefined) {
       data.alertThresholdBasisPts =
@@ -287,6 +298,13 @@ router.patch(
     }
 
     validateResetConfig(resetData);
+
+    const cycleAlignment = cycleAlignmentAfterResetScheduleUpdate(current, resetScheduleUpdate);
+    if (cycleAlignment) {
+      data.currentCycleId = cycleAlignment.currentCycleId;
+      data.currentCycleStartedAt = cycleAlignment.currentCycleStartedAt;
+      data.lastResetCycleId = cycleAlignment.lastResetCycleId;
+    }
 
     const nextRemaining = remainingAfterHostUpdate(current, {
       trafficAllowanceBytes: nextAllowance,

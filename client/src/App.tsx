@@ -1140,6 +1140,7 @@ function Inspector({
   const [pollInterval, setPollInterval] = useState("60");
   const [countryCodeOverride, setCountryCodeOverride] = useState("");
   const [remainingGiB, setRemainingGiB] = useState("0");
+  const [remainingDirty, setRemainingDirty] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [saving, setSaving] = useState(false);
   const [suppressing, setSuppressing] = useState(false);
@@ -1169,6 +1170,7 @@ function Inspector({
     setPollInterval(String(host.pollIntervalSeconds));
     setCountryCodeOverride(host.countryCodeOverride || "");
     setRemainingGiB(bytesToGiB(host.remainingBytes));
+    setRemainingDirty(false);
     setNotice(null);
     setSuppressing(false);
     setSuppressingMissing(false);
@@ -1202,14 +1204,17 @@ function Inspector({
         alertThresholdPercent: alertThreshold === "" ? null : Number(alertThreshold),
         pollIntervalSeconds: Number(pollInterval),
         countryCodeOverride: countryCodeOverride.trim().toUpperCase(),
-        remainingBytes: gibToBytes(remainingGiB),
       };
+      if (remainingDirty) {
+        payload.remainingBytes = gibToBytes(remainingGiB);
+      }
 
       const response = await api.updateHost(node!.id, {
         ...payload,
       });
       onChanged(response.host);
       setRemainingGiB(bytesToGiB(response.host.remainingBytes));
+      setRemainingDirty(false);
       onToast({ type: "ok", message: "Host configuration saved." });
     } catch (error) {
       setNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to save host" });
@@ -1352,7 +1357,7 @@ function Inspector({
               <div className="section-h">Quota</div>
               <div className="field-grid">
                 <label className="field">Allowance (GiB)<input value={allowanceGiB} onChange={(event) => setAllowanceGiB(event.target.value)} type="number" min="0" step="0.01" /></label>
-                <label className="field">Remaining (GiB)<input value={remainingGiB} onChange={(event) => setRemainingGiB(event.target.value)} type="number" min="0" step="0.01" /></label>
+                <label className="field">Remaining (GiB)<input value={remainingGiB} onChange={(event) => { setRemainingGiB(event.target.value); setRemainingDirty(true); }} type="number" min="0" step="0.01" /></label>
                 <label className="field">Metering<select value={meteringType} onChange={(event) => setMeteringType(event.target.value as HostDto["meteringType"])}><option value="EGRESS_ONLY">Egress only</option><option value="INGRESS_AND_EGRESS">Ingress + egress</option></select></label>
                 <label className="field">Alert threshold (% remaining)<input value={alertThreshold} onChange={(event) => setAlertThreshold(event.target.value)} placeholder={`Default ${userDefaultThreshold}%`} type="number" min="0" max="100" step="0.01" /></label>
                 <label className="field">Poll interval (s)<input value={pollInterval} onChange={(event) => setPollInterval(event.target.value)} type="number" min="10" max="3600" /></label>
