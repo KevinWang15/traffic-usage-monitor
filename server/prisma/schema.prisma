@@ -1,0 +1,172 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum MeteringType {
+  EGRESS_ONLY
+  INGRESS_AND_EGRESS
+}
+
+enum ResetPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum HostStatus {
+  ACTIVE
+  STALE
+  DISABLED
+}
+
+model User {
+  id                            String                @id @default(cuid())
+  email                         String                @unique
+  name                          String
+  emailVerifiedAt               DateTime?
+  emailVerificationTokenHash    String?               @unique
+  emailVerificationExpiresAt    DateTime?
+  passwordResetTokenHash        String?               @unique
+  passwordResetExpiresAt        DateTime?
+  passwordHash                  String
+  joinToken                     String                @unique
+  defaultAlertThresholdBasisPts Int                   @default(1000)
+  createdAt                     DateTime              @default(now())
+  updatedAt                     DateTime              @updatedAt
+  hosts                         Host[]
+  remainingCorrections          RemainingCorrection[]
+  alertEvents                   AlertEvent[]
+}
+
+model Host {
+  id                         String                @id @default(cuid())
+  userId                     String
+  user                       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                       String?
+  notes                      String?               @db.Text
+  hostname                   String
+  machineId                  String?
+  publicIp                   String?
+  countryCode                String?               @db.VarChar(2)
+  countryCodeOverride        String?               @db.VarChar(2)
+  lastBootId                 String?
+  agentKeyHash               String
+  status                     HostStatus            @default(ACTIVE)
+  trafficAllowanceBytes      BigInt                @default(1099511627776)
+  remainingBytes             BigInt                @default(1099511627776)
+  usedBytes                  BigInt                @default(0)
+  meteringType               MeteringType          @default(EGRESS_ONLY)
+  resetPeriod                ResetPeriod           @default(MONTHLY)
+  resetDayOfMonth            Int                   @default(1)
+  resetDayOfWeek             Int                   @default(1)
+  resetMonth                 Int                   @default(1)
+  resetHourUtc               Int                   @default(0)
+  resetMinuteUtc             Int                   @default(0)
+  currentCycleId             String?
+  currentCycleStartedAt      DateTime?
+  lastResetCycleId           String?
+  alertThresholdBasisPts     Int?
+  lastAlertSentAt            DateTime?
+  lastAlertCycleId           String?
+  trafficAlertSuppressedAt   DateTime?
+  trafficAlertSuppressedUntilUsedBytes BigInt?
+  missingAlertSuppressedAt   DateTime?
+  pollIntervalSeconds        Int                   @default(60)
+  lastSeenAt                 DateTime?
+  lastReportAt               DateTime?
+  joinedAt                   DateTime              @default(now())
+  createdAt                  DateTime              @default(now())
+  updatedAt                  DateTime              @updatedAt
+  interfaceStates            HostInterfaceState[]
+  trafficSamples             TrafficSample[]
+  resetEvents                ResetEvent[]
+  remainingCorrections       RemainingCorrection[]
+  alertEvents                AlertEvent[]
+
+  @@unique([userId, machineId])
+  @@index([userId])
+  @@index([status])
+}
+
+model HostInterfaceState {
+  id             String   @id @default(cuid())
+  hostId         String
+  host           Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  name           String
+  lastRxBytes    BigInt   @default(0)
+  lastTxBytes    BigInt   @default(0)
+  lastObservedAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([hostId, name])
+  @@index([hostId])
+}
+
+model TrafficSample {
+  id           String   @id @default(cuid())
+  hostId       String
+  host         Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  interface    String
+  rxBytes      BigInt
+  txBytes      BigInt
+  deltaRxBytes BigInt
+  deltaTxBytes BigInt
+  meteredBytes BigInt
+  observedAt   DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([hostId, observedAt])
+}
+
+model ResetEvent {
+  id                     String   @id @default(cuid())
+  hostId                 String
+  host                   Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  cycleId                String
+  cycleStartedAt         DateTime
+  previousUsedBytes      BigInt
+  previousRemainingBytes BigInt
+  allowanceBytes         BigInt
+  createdAt              DateTime @default(now())
+
+  @@unique([hostId, cycleId])
+  @@index([hostId, createdAt])
+}
+
+model RemainingCorrection {
+  id                     String   @id @default(cuid())
+  hostId                 String
+  host                   Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  userId                 String
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  previousRemainingBytes BigInt
+  newRemainingBytes      BigInt
+  reason                 String?
+  createdAt              DateTime @default(now())
+
+  @@index([hostId, createdAt])
+}
+
+model AlertEvent {
+  id                String   @id @default(cuid())
+  hostId            String
+  host              Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  remainingBytes    BigInt
+  allowanceBytes    BigInt
+  thresholdBasisPts Int
+  status            String
+  errorMessage      String?  @db.Text
+  createdAt         DateTime @default(now())
+
+  @@index([hostId, createdAt])
+  @@index([userId, createdAt])
+}

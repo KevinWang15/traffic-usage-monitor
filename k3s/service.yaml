@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: traffic-usage-monitor-service
+  namespace: traffic-usage-monitor
+  labels:
+    app.kubernetes.io/name: traffic-usage-monitor
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: "/api/metrics"
+    prometheus.io/port: "3000"
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: traffic-usage-monitor
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+      nodePort: 25336
+      protocol: TCP

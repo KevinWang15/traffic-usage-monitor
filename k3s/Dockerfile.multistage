@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1
+FROM node:20-slim AS builder
+WORKDIR /app
+RUN apt-get update -y && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
+
+COPY shared /app/shared
+COPY agent /app/agent
+
+WORKDIR /app/server
+COPY server/package*.json ./
+RUN npm install
+COPY server ./
+RUN npx prisma generate && npm run build
+
+WORKDIR /app/client
+COPY client/package*.json ./
+RUN npm install
+COPY client ./
+RUN npm run build
+
+FROM node:20-slim AS production
+WORKDIR /app
+ENV NODE_ENV=production
+RUN apt-get update -y && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
+
+COPY agent /app/agent
+WORKDIR /app/server
+COPY server/package*.json ./
+RUN npm install --omit=dev
+COPY --from=builder /app/server/dist ./dist
+COPY --from=builder /app/server/prisma ./prisma
+COPY --from=builder /app/server/geoip ./geoip
+COPY --from=builder /app/client/dist ./dist/public
+RUN npx prisma generate
+
+EXPOSE 3000
+CMD ["node", "dist/server.js"]
