@@ -61,6 +61,7 @@ export async function maybeSendTrafficAlert(host: HostWithUser): Promise<void> {
       <li>Remaining: <strong>${formatBytes(host.remainingBytes)}</strong> (${remainingPercent}%)</li>
       <li>Allowance: ${formatBytes(host.trafficAllowanceBytes)}</li>
       <li>Threshold: ${thresholdPercent}%</li>
+      <li>IP address: ${escapeHtml(host.publicIp || "unknown")}</li>
       <li>Metering: ${escapeHtml(host.meteringType)}</li>
       <li>Cycle: ${escapeHtml(host.currentCycleId || "not initialized")}</li>
     </ul>
@@ -134,6 +135,7 @@ export async function maybeSendMissingHostAlert(host: HostWithUser, now = new Da
     <ul>
       <li>Last contact: <strong>${escapeHtml(lastContactText)}</strong></li>
       <li>Hostname: ${escapeHtml(host.hostname)}</li>
+      <li>IP address: ${escapeHtml(host.publicIp || "unknown")}</li>
       <li>Machine ID: ${escapeHtml(host.machineId || "unknown")}</li>
       <li>Poll interval: ${host.pollIntervalSeconds} seconds</li>
     </ul>
