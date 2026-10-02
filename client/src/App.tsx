@@ -19,6 +19,7 @@ import type { HostDto, TrafficSampleDto, UserDto } from "@shared/types/traffic";
 import { SHARED_APP_NAME } from "@shared/config/runtime";
 import { api, getToken, setToken, type JoinCommandResponse } from "./api";
 import { bytesToGiB, formatBytes, gibToBytes } from "./lib";
+import { NotificationsPanel } from "./NotificationsPanel";
 
 type AuthMode = "login" | "signup" | "forgot" | "reset" | "verify";
 type Notice = { type: "ok" | "error"; message: string } | null;
@@ -685,7 +686,7 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
     }
     if (
       !confirm(
-        "This will replace your account name, join token, default alert threshold, and host configurations with the uploaded backup. Continue?",
+        "This will replace your account name, join token, default alert threshold, notification settings (if present), and host configurations with the uploaded backup. Continue?",
       )
     ) {
       return;
@@ -743,7 +744,7 @@ function AccountPanel({ user, onUserChanged }: { user: UserDto; onUserChanged: (
           className="btn"
           onClick={handleExportConfig}
           disabled={exportLoading || importLoading}
-          title="Download account, join token, and host configurations as JSON"
+          title="Download account, join token, notification settings, and host configurations as JSON"
         >
           <Download size={14} />
           {exportLoading ? "Exporting" : "Export config"}
@@ -790,6 +791,7 @@ function Sidebar({
     { id: "nodes", label: "Nodes", count: counts.total },
     { id: "alerts", label: "Alerts", count: counts.alerts, dot: "crit" },
     { id: "install", label: "Install" },
+    { id: "notifications", label: "Notifications" },
     { id: "audit", label: "Audit log" },
   ];
   const saved = [
@@ -1662,7 +1664,7 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
       <Sidebar active={active} setActive={setActive} counts={counts} user={user} />
       <main className="main">
         <div className="topbar">
-          <div className="breadcrumb"><span>Fleet</span><span className="sep">/</span><strong>{active === "install" ? "Install" : "Nodes"}</strong></div>
+          <div className="breadcrumb"><span>Fleet</span><span className="sep">/</span><strong>{active === "install" ? "Install" : active === "notifications" ? "Notifications" : "Nodes"}</strong></div>
           <span className="chip static"><span className="sdot ok live" /> Live · updates every 30s</span>
           <div className="spacer" />
           <button className="icon-btn" onClick={() => setActive("install")}><TerminalSquare size={14} /> Install node</button>
@@ -1672,6 +1674,8 @@ function Dashboard({ user, onUserChanged, onLogout }: { user: UserDto; onUserCha
         <KpiStrip nodes={nodes} />
         {active === "install" ? (
           <div className="content-pad"><AccountPanel user={user} onUserChanged={onUserChanged} /></div>
+        ) : active === "notifications" ? (
+          <div className="content-pad"><NotificationsPanel /></div>
         ) : (
           <>
             <Toolbar

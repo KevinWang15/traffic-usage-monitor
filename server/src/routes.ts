@@ -6,6 +6,7 @@ import accountRoutes from "./routes/account";
 import configRoutes from "./routes/config";
 import hostRoutes from "./routes/hosts";
 import agentRoutes from "./routes/agent";
+import notificationRoutes from "./routes/notifications";
 import prisma from "./prisma";
 
 const router = Router();
@@ -75,5 +76,6 @@ router.use("/account", accountRoutes);
 router.use("/config", configRoutes);
 router.use("/hosts", hostRoutes);
 router.use("/agent", agentRoutes);
+router.use("/notifications", notificationRoutes);
 
 export default router;

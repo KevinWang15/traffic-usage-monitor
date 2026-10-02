@@ -371,6 +371,19 @@ table.nodes { width: 100%; border-collapse: collapse; font-size: 12px; }
 .account-grid { max-width: 620px; }
 .action-field { justify-content: end; }
 
+.notifications-panel .notice { margin-bottom: 14px; }
+.notification-card { border: 1px solid var(--line-soft); border-radius: 6px; padding: 14px; margin-bottom: 12px; overflow-wrap: anywhere; }
+.notification-target-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.notification-target-head > div { min-width: 0; }
+.notification-target-head strong { display: flex; align-items: center; gap: 6px; color: var(--text); }
+.notification-card p { margin: 6px 0; }
+.notification-card .button-row { margin-bottom: 0; }
+.notification-toggle { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.notification-form { border: 0; padding: 0; min-width: 0; }
+.notification-history { max-height: 65vh; overflow-y: auto; }
+.notification-preview { white-space: pre-wrap; }
+.notification-error { color: var(--crit); }
+
 .auth-shell { display: grid; place-items: center; min-height: 100vh; padding: 24px; background: var(--bg); }
 .auth-card {
   width: min(100%, 520px);

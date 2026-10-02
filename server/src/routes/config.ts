@@ -1,6 +1,8 @@
 import { HostStatus, MeteringType, Prisma, ResetPeriod } from "@prisma/client";
 import { Router } from "express";
 import prisma from "../prisma";
+import type { WebhookConfig } from "@shared/types/notifications";
+import { parseWebhookConfig, WebhookValidationError } from "../lib/webhook";
 import { asyncHandler, HttpError, sendJson } from "../lib/http";
 import { requireUser } from "../middleware/auth";
 
@@ -141,7 +143,10 @@ function parseHost(entry: unknown): ImportedHost {
     countryCodeOverride: asStringOrNull(h.countryCodeOverride, "host.countryCodeOverride"),
     agentKeyHash: asString(h.agentKeyHash, "host.agentKeyHash"),
     status: asEnum(h.status, HOST_STATUSES, "host.status"),
-    trafficAllowanceBytes: asNonNegativeBigInt(h.trafficAllowanceBytes, "host.trafficAllowanceBytes"),
+    trafficAllowanceBytes: asNonNegativeBigInt(
+      h.trafficAllowanceBytes,
+      "host.trafficAllowanceBytes",
+    ),
     remainingBytes: asNonNegativeBigInt(h.remainingBytes, "host.remainingBytes"),
     usedBytes: asNonNegativeBigInt(h.usedBytes, "host.usedBytes"),
     meteringType: asEnum(h.meteringType, METERING_TYPES, "host.meteringType"),
@@ -154,13 +159,24 @@ function parseHost(entry: unknown): ImportedHost {
     currentCycleId: asStringOrNull(h.currentCycleId, "host.currentCycleId"),
     currentCycleStartedAt: asDateOrNull(h.currentCycleStartedAt, "host.currentCycleStartedAt"),
     lastResetCycleId: asStringOrNull(h.lastResetCycleId, "host.lastResetCycleId"),
-    alertThresholdBasisPts: asIntegerOrNull(h.alertThresholdBasisPts, "host.alertThresholdBasisPts", 0, 10000),
-    trafficAlertSuppressedAt: asDateOrNull(h.trafficAlertSuppressedAt, "host.trafficAlertSuppressedAt"),
+    alertThresholdBasisPts: asIntegerOrNull(
+      h.alertThresholdBasisPts,
+      "host.alertThresholdBasisPts",
+      0,
+      10000,
+    ),
+    trafficAlertSuppressedAt: asDateOrNull(
+      h.trafficAlertSuppressedAt,
+      "host.trafficAlertSuppressedAt",
+    ),
     trafficAlertSuppressedUntilUsedBytes: asNonNegativeBigIntOrNull(
       h.trafficAlertSuppressedUntilUsedBytes,
       "host.trafficAlertSuppressedUntilUsedBytes",
     ),
-    missingAlertSuppressedAt: asDateOrNull(h.missingAlertSuppressedAt, "host.missingAlertSuppressedAt"),
+    missingAlertSuppressedAt: asDateOrNull(
+      h.missingAlertSuppressedAt,
+      "host.missingAlertSuppressedAt",
+    ),
     pollIntervalSeconds: asInteger(h.pollIntervalSeconds, "host.pollIntervalSeconds", 10, 3600),
     joinedAt: asDateOrNull(h.joinedAt, "host.joinedAt"),
     lastSeenAt: asDateOrNull(h.lastSeenAt, "host.lastSeenAt"),
@@ -172,6 +188,8 @@ type ImportPayload = {
   name?: string;
   joinToken?: string;
   defaultAlertThresholdBasisPts?: number;
+  notificationEmailEnabled?: boolean;
+  webhooks?: WebhookConfig[];
   hosts: ImportedHost[];
 };
 
@@ -224,7 +242,27 @@ function parseImportPayload(payload: unknown): ImportPayload {
     parsedHosts.push(host);
   }
 
-  return { name, joinToken, defaultAlertThresholdBasisPts, hosts: parsedHosts };
+  if (u.notificationEmailEnabled !== undefined && typeof u.notificationEmailEnabled !== "boolean") {
+    fail("user.notificationEmailEnabled must be a boolean");
+  }
+  let webhooks: WebhookConfig[] | undefined;
+  if (p.webhooks !== undefined) {
+    if (!Array.isArray(p.webhooks)) fail("webhooks must be an array");
+    try {
+      webhooks = p.webhooks.map(parseWebhookConfig);
+    } catch (error) {
+      if (error instanceof WebhookValidationError) fail(error.message);
+      throw error;
+    }
+  }
+  return {
+    name,
+    joinToken,
+    defaultAlertThresholdBasisPts,
+    notificationEmailEnabled: u.notificationEmailEnabled as boolean | undefined,
+    webhooks,
+    hosts: parsedHosts,
+  };
 }
 
 router.get(
@@ -237,6 +275,18 @@ router.get(
         name: true,
         joinToken: true,
         defaultAlertThresholdBasisPts: true,
+        notificationEmailEnabled: true,
+        webhookTargets: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            name: true,
+            enabled: true,
+            url: true,
+            method: true,
+            headers: true,
+            bodyTemplate: true,
+          },
+        },
         hosts: {
           orderBy: { createdAt: "asc" },
           select: {
@@ -289,7 +339,9 @@ router.get(
         name: user.name,
         joinToken: user.joinToken,
         defaultAlertThresholdBasisPts: user.defaultAlertThresholdBasisPts,
+        notificationEmailEnabled: user.notificationEmailEnabled,
       },
+      webhooks: user.webhookTargets,
       hosts: user.hosts,
     });
   }),
@@ -334,6 +386,15 @@ router.post(
       }
       if (parsed.defaultAlertThresholdBasisPts !== undefined) {
         userUpdate.defaultAlertThresholdBasisPts = parsed.defaultAlertThresholdBasisPts;
+      }
+      if (parsed.notificationEmailEnabled !== undefined) {
+        userUpdate.notificationEmailEnabled = parsed.notificationEmailEnabled;
+      }
+      if (parsed.webhooks !== undefined) {
+        await tx.webhookTarget.deleteMany({ where: { userId } });
+        for (const webhook of parsed.webhooks) {
+          await tx.webhookTarget.create({ data: { ...webhook, userId } });
+        }
       }
       if (Object.keys(userUpdate).length > 0) {
         await tx.user.update({ where: { id: userId }, data: userUpdate });

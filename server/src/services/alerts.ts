@@ -1,7 +1,7 @@
 import type { Host, User } from "@prisma/client";
 import prisma from "../prisma";
 import { formatBytes } from "../lib/bytes";
-import { sendEmail } from "../lib/email";
+import { sendNotification } from "./notificationService";
 import { isTrafficAlertSuppressed } from "../lib/trafficAlertSuppression";
 
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
@@ -32,7 +32,8 @@ export async function maybeSendTrafficAlert(host: HostWithUser): Promise<void> {
     return;
   }
 
-  const thresholdBasisPoints = host.alertThresholdBasisPts ?? host.user.defaultAlertThresholdBasisPts;
+  const thresholdBasisPoints =
+    host.alertThresholdBasisPts ?? host.user.defaultAlertThresholdBasisPts;
   if (thresholdBasisPoints <= 0) {
     return;
   }
@@ -66,11 +67,40 @@ export async function maybeSendTrafficAlert(host: HostWithUser): Promise<void> {
       <li>Cycle: ${escapeHtml(host.currentCycleId || "not initialized")}</li>
     </ul>
     ${hostNotesHtml(host)}
-    <p>Alerts for this host are throttled to at most one email every 3 hours.</p>
+    <p>Alerts for this host are throttled to at most one notification every 3 hours.</p>
   `;
 
   try {
-    await sendEmail({ to: host.user.email, subject, html });
+    const text = [
+      subject,
+      `Remaining: ${formatBytes(host.remainingBytes)} (${remainingPercent}%)`,
+      `Allowance: ${formatBytes(host.trafficAllowanceBytes)}`,
+      `Threshold: ${thresholdPercent}%`,
+      `Hostname: ${host.hostname}`,
+      `IP address: ${host.publicIp || "unknown"}`,
+      `Metering: ${host.meteringType}`,
+      `Cycle: ${host.currentCycleId || "not initialized"}`,
+      ...(host.notes?.trim() ? [`Host notes: ${host.notes.trim()}`] : []),
+    ].join("\n");
+    const delivery = await sendNotification({
+      userId: host.userId,
+      to: host.user.email,
+      subject,
+      html,
+      text,
+      purpose: "TRAFFIC_ALERT",
+      shortText: `${subject} (IP: ${host.publicIp || "unknown"})`,
+      details: [hostLabel, host.hostname, host.publicIp || "unknown"],
+    });
+    if (!delivery.deliveries.length) return;
+    if (!delivery.sent)
+      throw new Error(
+        delivery.deliveries
+          .map((item) => item.error)
+          .filter(Boolean)
+          .join("; "),
+      );
+
     await prisma.$transaction([
       prisma.alertEvent.create({
         data: {
@@ -107,7 +137,10 @@ export async function maybeSendTrafficAlert(host: HostWithUser): Promise<void> {
   }
 }
 
-export async function maybeSendMissingHostAlert(host: HostWithUser, now = new Date()): Promise<void> {
+export async function maybeSendMissingHostAlert(
+  host: HostWithUser,
+  now = new Date(),
+): Promise<void> {
   if (host.missingAlertSuppressedAt) {
     return;
   }
@@ -140,11 +173,38 @@ export async function maybeSendMissingHostAlert(host: HostWithUser, now = new Da
       <li>Poll interval: ${host.pollIntervalSeconds} seconds</li>
     </ul>
     ${hostNotesHtml(host)}
-    <p>This alert is separate from traffic allowance alerts and is throttled to at most one email every 3 hours per host.</p>
+    <p>This alert is separate from traffic allowance alerts and is throttled to at most one notification every 3 hours per host.</p>
   `;
 
   try {
-    await sendEmail({ to: host.user.email, subject, html });
+    const text = [
+      subject,
+      `Last contact: ${lastContactText}`,
+      `Hostname: ${host.hostname}`,
+      `IP address: ${host.publicIp || "unknown"}`,
+      `Machine ID: ${host.machineId || "unknown"}`,
+      `Poll interval: ${host.pollIntervalSeconds} seconds`,
+      ...(host.notes?.trim() ? [`Host notes: ${host.notes.trim()}`] : []),
+    ].join("\n");
+    const delivery = await sendNotification({
+      userId: host.userId,
+      to: host.user.email,
+      subject,
+      html,
+      text,
+      purpose: "MISSING_HOST",
+      shortText: `${subject} (IP: ${host.publicIp || "unknown"})`,
+      details: [hostLabel, host.hostname, host.publicIp || "unknown"],
+    });
+    if (!delivery.deliveries.length) return;
+    if (!delivery.sent)
+      throw new Error(
+        delivery.deliveries
+          .map((item) => item.error)
+          .filter(Boolean)
+          .join("; "),
+      );
+
     await prisma.alertEvent.create({
       data: {
         hostId: host.id,

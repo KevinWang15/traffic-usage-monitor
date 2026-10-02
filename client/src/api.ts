@@ -51,6 +51,14 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 }
 
 export const api = {
+  get<T>(path: string) { return apiFetch<T>(`/api${path}`); },
+  post<T>(path: string, body?: unknown) {
+    return apiFetch<T>(`/api${path}`, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
+  },
+  put<T>(path: string, body: unknown) {
+    return apiFetch<T>(`/api${path}`, { method: "PUT", body: JSON.stringify(body) });
+  },
+  delete<T>(path: string) { return apiFetch<T>(`/api${path}`, { method: "DELETE" }); },
   signup(email: string, password: string, name: string) {
     return apiFetch<MessageResponse>("/api/auth/signup", {
       method: "POST",
@@ -152,6 +160,8 @@ export type ConfigExportPayload = {
     name: string;
     joinToken: string;
     defaultAlertThresholdBasisPts: number;
+    notificationEmailEnabled?: boolean;
   };
+  webhooks?: Array<Record<string, unknown>>;
   hosts: Array<Record<string, unknown>>;
 };

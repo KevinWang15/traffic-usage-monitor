@@ -37,11 +37,14 @@ model User {
   passwordHash                  String
   joinToken                     String                @unique
   defaultAlertThresholdBasisPts Int                   @default(1000)
+  notificationEmailEnabled      Boolean               @default(true)
   createdAt                     DateTime              @default(now())
   updatedAt                     DateTime              @updatedAt
   hosts                         Host[]
   remainingCorrections          RemainingCorrection[]
   alertEvents                   AlertEvent[]
+  webhookTargets                WebhookTarget[]
+  notificationLogs              NotificationLog[]
 }
 
 model Host {
@@ -169,4 +172,55 @@ model AlertEvent {
 
   @@index([hostId, createdAt])
   @@index([userId, createdAt])
+}
+
+enum NotificationChannel {
+  EMAIL
+  WEBHOOK
+}
+
+enum NotificationPurpose {
+  TEST
+  TRAFFIC_ALERT
+  MISSING_HOST
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model WebhookTarget {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  enabled      Boolean  @default(true)
+  url          String   @db.VarChar(2048)
+  method       String   @default("POST") @db.VarChar(7)
+  headers      Json
+  bodyTemplate String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model NotificationLog {
+  id          String              @id @default(cuid())
+  userId      String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel     NotificationChannel
+  target      String
+  requestedAt DateTime            @default(now())
+  sentAt      DateTime?
+  status      NotificationStatus  @default(PENDING)
+  purpose     NotificationPurpose
+  subject     String              @db.Text
+  preview     String?             @db.Text
+  error       String?             @db.Text
+  updatedAt   DateTime            @updatedAt
+
+  @@index([userId, requestedAt])
 }

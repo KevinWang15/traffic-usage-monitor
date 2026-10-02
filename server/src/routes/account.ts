@@ -1,9 +1,9 @@
 import { Router } from "express";
 import prisma from "../prisma";
 import { env } from "../config";
-import { asyncHandler, requireBodyString, sendJson } from "../lib/http";
+import { asyncHandler, HttpError, requireBodyString, sendJson } from "../lib/http";
 import { percentToBasisPoints } from "../lib/bytes";
-import { sendEmail } from "../lib/email";
+import { sendTrackedEmail, testNotification } from "../services/notificationService";
 import { randomToken } from "../lib/security";
 import { requireUser } from "../middleware/auth";
 import { userDto } from "./auth";
@@ -17,10 +17,6 @@ function shellQuote(value: string): string {
 function buildJoinCommand(publicUrl: string, joinToken: string): string {
   const baseUrl = publicUrl.replace(/\/$/, "");
   return `curl -fsSL ${shellQuote(`${baseUrl}/api/agent/install.sh`)} | sudo bash -s -- --server ${shellQuote(baseUrl)} --token ${shellQuote(joinToken)}`;
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char]!);
 }
 
 router.use(requireUser);
@@ -75,12 +71,8 @@ router.post(
 router.post(
   "/test-email",
   asyncHandler(async (req, res) => {
-    const name = escapeHtml(req.user!.name);
-    await sendEmail({
-      to: req.user!.email,
-      subject: "Traffic Usage Monitor test email",
-      html: `<p>Hello ${name},</p><p>This is a test email from Traffic Usage Monitor.</p><p>If you received this, email delivery is configured correctly.</p>`,
-    });
+    const result = await sendTrackedEmail(testNotification(req.user!), new Date());
+    if (result.status !== "SENT") throw new HttpError(502, result.error || "Email delivery failed");
     sendJson(res, { ok: true, message: "Test email sent." });
   }),
 );

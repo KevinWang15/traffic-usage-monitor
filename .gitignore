@@ -6,3 +6,4 @@ coverage
 client/dist
 server/dist
 *.log
+tests/containers/artifacts/

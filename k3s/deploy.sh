@@ -155,6 +155,7 @@ create_app_secret() {
     write_env_key TZ
     write_env_key ENGAGE_LAB_USERNAME
     write_env_key ENGAGE_LAB_API_KEY
+    write_env_key WEBHOOK_ALLOW_PRIVATE_IPS
     write_env_key ENGAGE_LAB_FROM_EMAIL
     write_env_key HEALTHCHECKS_PING_URL
     write_env_key EMAIL_VERIFICATION_TOKEN_TTL_MINUTES

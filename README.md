@@ -22,9 +22,39 @@ Repository layout:
 - The server stores each host's agent-reported public IPv4 during join/report and can auto-detect country from a local MaxMind database.
 - Users can manually correct remaining traffic for a host.
 - Reset checks run every minute. For each host, the server normalizes the current UTC time to the configured cycle start and stores that cycle identifier in the database to avoid duplicate resets.
-- Alerts are emailed to the account email address when remaining traffic falls below the threshold. Alerts are throttled per host to at most one email every 3 hours.
-- Traffic alerts can be ignored after traffic has been switched away. The ignore marker suppresses emails until used traffic increases by another 1 percentage point of the allowance, or until the next reset cycle clears it.
+- Traffic allowance and missing-node alerts can be delivered to the account email address and multiple configurable webhooks. Alerts retain their separate per-host 3-hour cooldowns.
+- Traffic alerts can be ignored after traffic has been switched away. The ignore marker suppresses notifications until used traffic increases by another 1 percentage point of the allowance, or until the next reset cycle clears it.
 - Email delivery uses the provided EngageLab `sendEmail` implementation.
+
+## Notifications
+
+Open **Notifications** in the dashboard sidebar to enable or disable monitoring emails, manage webhook targets, send tests to one target or all enabled targets, and inspect delivery history. Verification and password reset messages always use email. The existing **Install → Send test email** button tests email delivery independently of the monitoring email toggle.
+
+Webhook targets support GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS, custom headers as a JSON object, and an optional JSON or plain-text body template. GET and HEAD send no body. A blank template sends a JSON object containing `app`, `purpose`, `subject`, `html`, `text`, `shortText`, `details`, and `requestedAt`. Purposes are `TEST`, `TRAFFIC_ALERT`, and `MISSING_HOST`. Alert text includes the host's IP address and notes.
+
+Use these variables in URLs, header values, and body templates:
+
+| Variable | Value |
+| --- | --- |
+| `$SUBJECT` | Notification title |
+| `$TEXT` | Full plain-text alert |
+| `$SHORT_TEXT` | Brief alert including the host IP |
+| `$HTML` | HTML alert |
+| `$PURPOSE` | Notification purpose |
+| `$DETAILS` | Host label, hostname, and IP, separated by commas |
+| `$TIMESTAMP` | ISO timestamp of the notification request |
+
+For example, use `https://notify.example.com/send?message=$SHORT_TEXT` for a GET webhook, or `{"text":"$TEXT"}` as a POST body. Each variable substituted in a URL is encoded with `encodeURIComponent`, preserving literal query parameters. For JSON body templates, variables in string values are expanded after parsing so quotes, newlines, and backslashes are escaped correctly. Plain-text bodies and header values use raw substitution. Unknown variables are left unchanged.
+
+Deliveries run independently, with up to five requests at once. Successful delivery to any enabled target advances the traffic alert cooldown. Missing-node delivery attempts retain the existing cooldown after success or failure. With no enabled targets, no delivery is attempted. Failures appear in delivery history; webhook requests have a ten-second deadline and do not follow redirects.
+
+Webhook destinations must use HTTP or HTTPS without embedded credentials or URL fragments. Private and reserved destination addresses are blocked by default, including DNS results. Set `WEBHOOK_ALLOW_PRIVATE_IPS=true` to reach an internal receiver. This setting is available in `.env.sample` and the k3s configuration.
+
+Configuration exports include the email toggle and webhook settings. Older backups without these fields keep the current notification settings when imported. Run `npx prisma migrate deploy` in `server` when deploying the new database migration.
+
+## Container verification
+
+Run `npm run test:containers` to build the production image and run unit, type, integration, and restart persistence checks against local MySQL, an HTTP webhook receiver, and an HTTPS mock EngageLab provider. The application and mocks use an internal Docker network; tests do not call external notification services. See [the container test instructions](tests/containers/README.md) for inspection URLs and cleanup.
 
 ## Local setup
 
@@ -156,6 +186,14 @@ Do not rerun the full install command unless the node should rejoin. The next re
 - `PATCH /api/account`
 - `POST /api/account/join-token/rotate`
 - `POST /api/account/test-email`
+- `GET /api/notifications/settings`
+- `PUT /api/notifications/email`
+- `POST /api/notifications/webhooks`
+- `PUT /api/notifications/webhooks/:id`
+- `DELETE /api/notifications/webhooks/:id`
+- `POST /api/notifications/test`
+- `POST /api/notifications/webhooks/:id/test`
+- `GET /api/notifications/history`
 - `GET /api/hosts`
 - `GET /api/hosts/:id`
 - `PATCH /api/hosts/:id`
